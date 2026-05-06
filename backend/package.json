@@ -1,0 +1,30 @@
+{
+  "name": "board-portal-backend",
+  "version": "1.0.0",
+  "description": "Board pack repository module - backend",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:setup": "prisma generate && prisma migrate deploy",
+    "db:seed": "node src/seed.js",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "better-sqlite3": "^9.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-fileupload": "^1.4.3",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4",
+    "prisma": "^5.14.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
