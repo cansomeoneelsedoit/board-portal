@@ -41,6 +41,9 @@ app.use('/api/proxies', require('./routes/proxies'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/audit', require('./routes/audit'));
 
+// Root
+app.get('/', (req, res) => res.json({ message: 'Board Portal API', status: 'running' }));
+
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
