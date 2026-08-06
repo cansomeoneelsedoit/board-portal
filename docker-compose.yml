@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: board-portal-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: boardportal
+      POSTGRES_PASSWORD: boardportal
+      POSTGRES_DB: board_portal_dev
+    ports:
+      - "5440:5432"
+    volumes:
+      - board-portal-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boardportal -d board_portal_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  board-portal-pgdata:

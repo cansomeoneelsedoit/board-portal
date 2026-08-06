@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import Layout from './components/Layout'
+import AppLayout from './components/AppLayout'
 import Dashboard from './pages/Dashboard'
 import Meetings from './pages/Meetings'
 import MeetingDetail from './pages/MeetingDetail'
@@ -11,11 +11,15 @@ import COI from './pages/COI'
 import Proxies from './pages/Proxies'
 import Integrations from './pages/Integrations'
 
+// Host verticals mount this app under a sub-path (e.g. /board-portal).
+const basename =
+  (typeof window !== 'undefined' && window.__BOARD_PORTAL__?.basename) || undefined
+
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/" element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="meetings" element={<Meetings />} />
           <Route path="meetings/:id" element={<MeetingDetail />} />

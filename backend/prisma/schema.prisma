@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -31,10 +31,16 @@ model Board {
   id          String   @id @default(uuid())
   name        String
   description String?
+  // Tenant seam: when this app runs as a module inside a MasonsView/HotelView
+  // vertical, orgKey holds the host organisation/hotel identifier so boards can
+  // be scoped per tenant. Null when running standalone.
+  orgKey      String?
   createdAt   DateTime @default(now())
-  
+
   meetings    Meeting[]
   members     BoardMember[]
+
+  @@index([orgKey])
 }
 
 model BoardMember {

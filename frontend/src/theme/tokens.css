@@ -1,0 +1,218 @@
+/**
+ * Skin tokens.
+ *
+ * Two skins, selected by `data-skin` on <html>:
+ *
+ *   masonsview — matches the Mason-View / HotelView host product. Tokens are
+ *                lifted from the real source (resources/css/app.css): shadcn
+ *                oklch scale, Instrument Sans, navy #1c3a66 + gold #d4af37
+ *                brand pair, light near-white sidebar, 0.625rem radius.
+ *
+ *   classic    — the original Board Portal design, unchanged: slate-900 dark
+ *                sidebar, Inter, indigo primary, rounded-xl cards.
+ *
+ * Pages never reference skin colours directly. They use the semantic classes
+ * below, so a single source of markup renders correctly under either skin.
+ */
+
+/* ---------------------------------------------------------------- classic */
+:root,
+[data-skin='classic'] {
+  --bp-font: 'Inter', system-ui, sans-serif;
+
+  --bp-bg: #f8fafc;              /* slate-50  */
+  --bp-fg: #0f172a;              /* slate-900 */
+  --bp-muted: #64748b;           /* slate-500 */
+  --bp-subtle: #94a3b8;          /* slate-400 */
+
+  --bp-card: #ffffff;
+  --bp-card-border: #e2e8f0;     /* slate-200 */
+  --bp-card-radius: 0.75rem;
+  --bp-card-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+
+  --bp-primary: #2f4ac5;
+  --bp-primary-hover: #2440a8;
+  --bp-primary-fg: #ffffff;
+  --bp-primary-soft: #e0e9ff;
+  --bp-primary-soft-fg: #2440a8;
+
+  --bp-ring: #3b5bdb;
+  --bp-radius: 0.5rem;
+
+  --bp-sidebar: #0f172a;         /* slate-900 */
+  --bp-sidebar-fg: #94a3b8;
+  --bp-sidebar-fg-strong: #ffffff;
+  --bp-sidebar-border: #334155;
+  --bp-sidebar-accent: #1e293b;
+  --bp-sidebar-active: #2f4ac5;
+  --bp-sidebar-active-fg: #ffffff;
+  --bp-sidebar-width: 16rem;
+
+  --bp-header-bg: #ffffff;
+  --bp-header-border: #e2e8f0;
+  --bp-header-height: 4.0625rem;
+
+  --bp-success-bg: #d1fae5; --bp-success-fg: #047857;
+  --bp-warning-bg: #fef3c7; --bp-warning-fg: #b45309;
+  --bp-danger-bg:  #fee2e2; --bp-danger-fg:  #b91c1c;
+  --bp-info-bg:    #dbeafe; --bp-info-fg:    #1d4ed8;
+  --bp-neutral-bg: #f1f5f9; --bp-neutral-fg: #475569;
+}
+
+/* ------------------------------------------------------------- masonsview */
+[data-skin='masonsview'] {
+  --bp-font: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+
+  --bp-bg: oklch(1 0 0);
+  --bp-fg: oklch(0.145 0 0);
+  --bp-muted: oklch(0.556 0 0);
+  --bp-subtle: oklch(0.646 0 0);
+
+  --bp-card: oklch(1 0 0);
+  --bp-card-border: oklch(0.922 0 0);
+  --bp-card-radius: 0.625rem;
+  --bp-card-shadow: none;
+
+  --bp-primary: oklch(0.3499 0.085 258.01);   /* navy #1c3a66 */
+  --bp-primary-hover: oklch(0.30 0.085 258.01);
+  --bp-primary-fg: oklch(0.985 0 0);
+  --bp-primary-soft: oklch(0.95 0.02 258);
+  --bp-primary-soft-fg: oklch(0.3499 0.085 258.01);
+
+  --bp-brand-gold: oklch(76.9% 0.188 70.08);  /* #d4af37 */
+
+  --bp-ring: oklch(0.87 0 0);
+  --bp-radius: 0.625rem;
+
+  --bp-sidebar: oklch(0.985 0 0);
+  --bp-sidebar-fg: oklch(0.145 0 0);
+  --bp-sidebar-fg-strong: oklch(0.145 0 0);
+  --bp-sidebar-border: oklch(0.922 0 0);
+  --bp-sidebar-accent: oklch(0.97 0 0);
+  --bp-sidebar-active: oklch(0.97 0 0);
+  --bp-sidebar-active-fg: oklch(0.205 0 0);
+  --bp-sidebar-width: 16rem;
+
+  --bp-header-bg: oklch(1 0 0);
+  --bp-header-border: oklch(0.922 0 0);
+  --bp-header-height: 4rem;
+
+  --bp-success-bg: oklch(0.95 0.05 150); --bp-success-fg: oklch(0.45 0.13 150);
+  --bp-warning-bg: oklch(0.96 0.06 85);  --bp-warning-fg: oklch(0.50 0.13 70);
+  --bp-danger-bg:  oklch(0.95 0.04 25);  --bp-danger-fg:  oklch(0.51 0.19 25);
+  --bp-info-bg:    oklch(0.95 0.03 255); --bp-info-fg:    oklch(0.45 0.12 255);
+  --bp-neutral-bg: oklch(0.97 0 0);      --bp-neutral-fg: oklch(0.45 0 0);
+}
+
+/* ------------------------------------------------------------ primitives */
+body {
+  background: var(--bp-bg);
+  color: var(--bp-fg);
+  font-family: var(--bp-font);
+}
+
+.bp-card {
+  background: var(--bp-card);
+  border: 1px solid var(--bp-card-border);
+  border-radius: var(--bp-card-radius);
+  box-shadow: var(--bp-card-shadow);
+}
+
+.bp-divide > * + * { border-top: 1px solid var(--bp-card-border); }
+
+.bp-muted  { color: var(--bp-muted); }
+.bp-subtle { color: var(--bp-subtle); }
+
+.bp-btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--bp-radius);
+  font-size: 0.875rem; font-weight: 500;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
+}
+.bp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bp-btn-primary { background: var(--bp-primary); color: var(--bp-primary-fg); }
+.bp-btn-primary:hover:not(:disabled) { background: var(--bp-primary-hover); }
+
+.bp-btn-secondary {
+  background: var(--bp-card);
+  color: var(--bp-fg);
+  border: 1px solid var(--bp-card-border);
+}
+.bp-btn-secondary:hover:not(:disabled) { background: var(--bp-neutral-bg); }
+
+.bp-badge {
+  display: inline-flex; align-items: center;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem; font-weight: 500;
+  white-space: nowrap;
+}
+.bp-badge--success { background: var(--bp-success-bg); color: var(--bp-success-fg); }
+.bp-badge--warning { background: var(--bp-warning-bg); color: var(--bp-warning-fg); }
+.bp-badge--danger  { background: var(--bp-danger-bg);  color: var(--bp-danger-fg);  }
+.bp-badge--info    { background: var(--bp-info-bg);    color: var(--bp-info-fg);    }
+.bp-badge--neutral { background: var(--bp-neutral-bg); color: var(--bp-neutral-fg); }
+
+/* Pastel icon chip used on stat tiles and list rows. */
+.bp-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--bp-radius);
+}
+.bp-chip--success { background: var(--bp-success-bg); color: var(--bp-success-fg); }
+.bp-chip--warning { background: var(--bp-warning-bg); color: var(--bp-warning-fg); }
+.bp-chip--danger  { background: var(--bp-danger-bg);  color: var(--bp-danger-fg);  }
+.bp-chip--info    { background: var(--bp-info-bg);    color: var(--bp-info-fg);    }
+.bp-chip--primary { background: var(--bp-primary-soft); color: var(--bp-primary-soft-fg); }
+
+.bp-link { color: var(--bp-primary); font-weight: 500; }
+.bp-link:hover { color: var(--bp-primary-hover); text-decoration: underline; }
+
+.bp-input {
+  background: transparent;
+  color: var(--bp-fg);
+  border: 1px solid var(--bp-card-border);
+  border-radius: var(--bp-radius);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+.bp-input:focus { border-color: var(--bp-ring); box-shadow: 0 0 0 3px var(--bp-neutral-bg); }
+.bp-input::placeholder { color: var(--bp-subtle); }
+
+.bp-table { width: 100%; font-size: 0.875rem; border-collapse: collapse; }
+.bp-table th {
+  text-align: left; font-weight: 500; color: var(--bp-muted);
+  padding: 0.625rem 1rem; border-bottom: 1px solid var(--bp-card-border);
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.bp-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--bp-card-border); }
+.bp-table tbody tr:last-child td { border-bottom: none; }
+
+/* The masonsview skin renders a light sidebar; classic renders the dark one. */
+.bp-sidebar {
+  width: var(--bp-sidebar-width);
+  background: var(--bp-sidebar);
+  border-right: 1px solid var(--bp-sidebar-border);
+}
+.bp-sidebar-item {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--bp-radius);
+  font-size: 0.875rem; font-weight: 500;
+  color: var(--bp-sidebar-fg);
+  transition: background-color 150ms, color 150ms;
+}
+.bp-sidebar-item:hover {
+  background: var(--bp-sidebar-accent);
+  color: var(--bp-sidebar-fg-strong);
+}
+.bp-sidebar-item--active {
+  background: var(--bp-sidebar-active);
+  color: var(--bp-sidebar-active-fg);
+}
+.bp-sidebar-item--active:hover {
+  background: var(--bp-sidebar-active);
+  color: var(--bp-sidebar-active-fg);
+}

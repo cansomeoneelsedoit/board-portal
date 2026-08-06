@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap');
+
+/* Skin tokens + semantic primitives. CSS requires @import before any other
+   statement, so this sits above the tailwind directives. Preflight does not
+   set body background/colour, so the token rules still win. */
+@import './theme/tokens.css';
 
 @tailwind base;
 @tailwind components;
@@ -6,10 +11,12 @@
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 font-sans;
+    @apply font-sans antialiased;
   }
 }
 
+/* Legacy component classes from the original design. Retained so the classic
+   skin renders exactly as it always did. */
 @layer components {
   .btn-primary {
     @apply bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;

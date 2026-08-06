@@ -1,103 +1,133 @@
-import { Calendar, FileText, Vote, Users, TrendingUp, Clock, CheckCircle, AlertCircle } from 'lucide-react'
+import { Calendar, FileText, Vote, Users, Clock, CheckCircle, AlertCircle, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useApi } from '../lib/useApi'
+import { endpoints } from '../lib/api'
+import { fmtDate, fmtDateTime, fmtRelative } from '../lib/format'
+import { Badge, Card, CardHeader, DataState, PageHeader, StatTile } from '../components/ui'
 
-const stats = [
-  { label: 'Upcoming Meetings', value: '3', icon: Calendar, color: 'bg-blue-500', change: 'Next: May 15' },
-  { label: 'Active Documents', value: '24', icon: FileText, color: 'bg-emerald-500', change: '+3 this week' },
-  { label: 'Open Motions', value: '7', icon: Vote, color: 'bg-purple-500', change: '2 pending vote' },
-  { label: 'Board Members', value: '9', icon: Users, color: 'bg-amber-500', change: '9/9 active' },
-]
-
-const upcomingMeetings = [
-  { id: 1, title: 'Board Meeting - Q2 Review', date: '2026-05-15', time: '10:00 AM', type: 'Board', status: 'confirmed' },
-  { id: 2, title: 'Audit Committee', date: '2026-05-22', time: '2:00 PM', type: 'Committee', status: 'pending' },
-  { id: 3, title: 'Special Resolution Meeting', date: '2026-06-01', time: '9:00 AM', type: 'Special', status: 'confirmed' },
-]
-
-const recentActivity = [
-  { id: 1, action: 'Document uploaded', detail: 'Q1 Financial Report.pdf', time: '2h ago', icon: FileText, color: 'text-blue-500' },
-  { id: 2, action: 'Motion passed', detail: 'Resolution 2026-04 approved (7-2)', time: '1d ago', icon: CheckCircle, color: 'text-emerald-500' },
-  { id: 3, action: 'Meeting minutes approved', detail: 'March Board Meeting', time: '2d ago', icon: CheckCircle, color: 'text-emerald-500' },
-  { id: 4, action: 'COI declaration submitted', detail: 'John Smith - Property Interest', time: '3d ago', icon: AlertCircle, color: 'text-amber-500' },
-]
+const activityIcon = {
+  DOCUMENT_UPLOADED: { icon: FileText,    tone: 'info' },
+  MOTION_CARRIED:    { icon: CheckCircle, tone: 'success' },
+  MOTION_LOST:       { icon: XCircle,     tone: 'danger' },
+  MINUTES_APPROVED:  { icon: CheckCircle, tone: 'success' },
+  COI_DECLARED:      { icon: AlertCircle, tone: 'warning' },
+}
 
 export default function Dashboard() {
+  const { data, loading, error, refetch } = useApi(endpoints.dashboard())
+
+  const state = <DataState loading={loading} error={error} onRetry={refetch} />
+  if (loading || error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Dashboard" subtitle="Board of Management — governance overview" />
+        {state}
+      </div>
+    )
+  }
+
+  const { stats, upcomingMeetings = [], activity = [] } = data || {}
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-slate-500 mt-1">Welcome back. Here's what's happening with BOM INC board.</p>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Board of Management — governance overview"
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          label="Upcoming Meetings"
+          value={stats.upcomingMeetings}
+          sub={stats.nextMeetingDate ? `Next: ${fmtDate(stats.nextMeetingDate)}` : 'None scheduled'}
+          icon={Calendar}
+          tone="info"
+        />
+        <StatTile
+          label="Documents"
+          value={stats.documents}
+          sub="Across all board packs"
+          icon={FileText}
+          tone="success"
+        />
+        <StatTile
+          label="Open Motions"
+          value={stats.openMotions}
+          sub={`${stats.motionsPendingVote} pending vote`}
+          icon={Vote}
+          tone="primary"
+        />
+        <StatTile
+          label="Board Members"
+          value={stats.boardMembers}
+          sub="Active appointments"
+          icon={Users}
+          tone="warning"
+        />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        {stats.map(({ label, value, icon: Icon, color, change }) => (
-          <div key={label} className="card p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-slate-500 font-medium">{label}</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{value}</p>
-                <p className="text-xs text-slate-400 mt-1">{change}</p>
-              </div>
-              <div className={`${color} p-2.5 rounded-lg`}>
-                <Icon size={20} className="text-white" />
-              </div>
+      <div className="grid gap-6 xl:grid-cols-5">
+        <Card className="xl:col-span-3">
+          <CardHeader
+            title="Upcoming Meetings"
+            action={<Link to="/meetings" className="bp-link text-sm">View all</Link>}
+          />
+          {upcomingMeetings.length === 0 ? (
+            <DataState empty emptyLabel="No meetings scheduled" />
+          ) : (
+            <div className="bp-divide">
+              {upcomingMeetings.map((m) => (
+                <Link
+                  key={m.id}
+                  to={`/meetings/${m.id}`}
+                  className="p-4 flex items-center gap-4 transition-colors hover:bg-[var(--bp-neutral-bg)]"
+                >
+                  <span className="bp-chip bp-chip--primary w-10 h-10 shrink-0">
+                    <Calendar size={18} />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{m.title}</p>
+                    <p className="text-xs bp-subtle mt-0.5">{fmtDateTime(m.date)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge status={m.status} />
+                    <span className="text-xs bp-muted hidden sm:inline">
+                      {m.invitations?.length ?? 0} invited
+                    </span>
+                  </div>
+                </Link>
+              ))}
             </div>
-          </div>
-        ))}
-      </div>
+          )}
+        </Card>
 
-      <div className="grid grid-cols-5 gap-6">
-        {/* Upcoming Meetings */}
-        <div className="col-span-3 card">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-900">Upcoming Meetings</h2>
-            <Link to="/meetings" className="text-sm text-primary-600 hover:text-primary-700 font-medium">View all</Link>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {upcomingMeetings.map(m => (
-              <div key={m.id} className="p-4 flex items-center gap-4">
-                <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center">
-                  <Calendar size={18} className="text-primary-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-slate-900">{m.title}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{m.date} at {m.time}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`badge ${m.type === 'Board' ? 'bg-blue-100 text-blue-700' : m.type === 'Committee' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>
-                    {m.type}
-                  </span>
-                  <span className={`badge ${m.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                    {m.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className="col-span-2 card">
-          <div className="p-5 border-b border-slate-100">
-            <h2 className="font-semibold text-slate-900">Recent Activity</h2>
-          </div>
-          <div className="p-4 space-y-4">
-            {recentActivity.map(a => (
-              <div key={a.id} className="flex items-start gap-3">
-                <a.icon size={16} className={`${a.color} mt-0.5 flex-shrink-0`} />
-                <div>
-                  <p className="text-sm font-medium text-slate-900">{a.action}</p>
-                  <p className="text-xs text-slate-500">{a.detail}</p>
-                  <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                    <Clock size={11} /> {a.time}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Card className="xl:col-span-2">
+          <CardHeader title="Recent Activity" />
+          {activity.length === 0 ? (
+            <DataState empty emptyLabel="No recent activity" />
+          ) : (
+            <div className="p-4 space-y-4">
+              {activity.map((a) => {
+                const cfg = activityIcon[a.kind] || { icon: Clock, tone: 'neutral' }
+                const Icon = cfg.icon
+                return (
+                  <div key={a.id} className="flex items-start gap-3">
+                    <span className={`bp-chip bp-chip--${cfg.tone} w-7 h-7 shrink-0`}>
+                      <Icon size={14} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{a.action}</p>
+                      <p className="text-xs bp-muted break-words">{a.detail}</p>
+                      <p className="text-xs bp-subtle mt-0.5 flex items-center gap-1">
+                        <Clock size={11} /> {fmtRelative(a.at)}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   )

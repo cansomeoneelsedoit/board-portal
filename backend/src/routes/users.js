@@ -1,2 +1,2 @@
 const makeRouter = require('./_base');
-module.exports = makeRouter('user');
+module.exports = makeRouter('user', { orderBy: { name: 'asc' } });

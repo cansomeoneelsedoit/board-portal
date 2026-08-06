@@ -4,6 +4,7 @@ import {
   Users, AlertTriangle, UserCheck, Settings, Building2, Bell, Search
 } from 'lucide-react'
 import clsx from 'clsx'
+import SkinToggle from './SkinToggle'
 
 const nav = [
   { to: '/',            icon: LayoutDashboard, label: 'Dashboard'    },
@@ -83,6 +84,7 @@ export default function Layout() {
             />
           </div>
           <div className="flex items-center gap-4">
+            <SkinToggle />
             <button className="relative p-2 text-slate-500 hover:text-slate-700">
               <Bell size={20} />
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />

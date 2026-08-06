@@ -7,6 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Original palette — still used by the classic layout.
         primary: {
           50: '#f0f4ff',
           100: '#e0e9ff',
@@ -18,10 +19,17 @@ export default {
         },
         slate: {
           750: '#2a3547',
-        }
+        },
+        // Skin-aware aliases. These resolve through the CSS variables in
+        // theme/tokens.css, so they follow whichever skin is active.
+        surface: 'var(--bp-card)',
+        canvas: 'var(--bp-bg)',
+        ink: 'var(--bp-fg)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        // Driven by the active skin: Inter for classic, Instrument Sans for
+        // masonsview. tokens.css sets --bp-font.
+        sans: ['var(--bp-font)', 'Inter', 'system-ui', 'sans-serif'],
       },
     },
   },
