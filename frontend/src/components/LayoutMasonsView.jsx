@@ -1,13 +1,10 @@
 import { Outlet, NavLink, useLocation, Link } from 'react-router-dom'
-import {
-  LayoutDashboard, Calendar, FileText, Vote, ClipboardList,
-  Users, AlertTriangle, UserCheck, Settings, ChevronsUpDown,
-  Search, PanelLeft, ChevronRight,
-} from 'lucide-react'
+import { ChevronsUpDown, Search, PanelLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 import { useState } from 'react'
 import SkinToggle from './SkinToggle'
 import { Avatar } from './ui'
+import { navGroups, allNavItems } from '../navigation'
 
 /**
  * Mason-View / HotelView styled shell.
@@ -20,44 +17,10 @@ import { Avatar } from './ui'
  * the palette toggle or ?skin=classic.
  */
 
-const navGroups = [
-  {
-    label: 'Governance',
-    items: [
-      { to: '/',           icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/meetings',   icon: Calendar,        label: 'Meetings' },
-      { to: '/documents',  icon: FileText,        label: 'Board Packs' },
-    ],
-  },
-  {
-    label: 'Proceedings',
-    items: [
-      { to: '/motions',    icon: Vote,            label: 'Motions' },
-      { to: '/minutes',    icon: ClipboardList,   label: 'Minutes' },
-      { to: '/attendance', icon: Users,           label: 'Attendance' },
-    ],
-  },
-  {
-    label: 'Compliance',
-    items: [
-      { to: '/coi',        icon: AlertTriangle,   label: 'COI Register' },
-      { to: '/proxies',    icon: UserCheck,       label: 'Proxies' },
-    ],
-  },
-  {
-    label: 'Configuration',
-    items: [
-      { to: '/integrations', icon: Settings,      label: 'Integrations' },
-    ],
-  },
-]
-
-const allItems = navGroups.flatMap((g) => g.items)
-
 function useBreadcrumb() {
   const { pathname } = useLocation()
   if (pathname === '/') return [{ label: 'Dashboard' }]
-  const match = allItems.find((i) => i.to !== '/' && pathname.startsWith(i.to))
+  const match = allNavItems.find((i) => i.to !== '/' && pathname.startsWith(i.to))
   const crumbs = [{ label: 'Board Portal', to: '/' }]
   if (match) crumbs.push({ label: match.label, to: match.to })
   // Detail routes (/meetings/:id) get a third crumb.

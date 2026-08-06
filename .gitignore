@@ -10,3 +10,6 @@ backend/prisma/dev.db*
 .DS_Store
 .vscode/
 .idea/
+
+# Railway CLI link state
+.railway/
