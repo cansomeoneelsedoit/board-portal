@@ -38,6 +38,7 @@ api.use('/boards', require('./routes/boards'));
 api.use('/meetings', require('./routes/meetings'));
 api.use('/agenda', require('./routes/agenda'));
 api.use('/documents', require('./routes/documents'));
+api.use('/sharepoint', require('./routes/sharepoint'));
 api.use('/motions', require('./routes/motions'));
 api.use('/votes', require('./routes/votes'));
 api.use('/attendance', require('./routes/attendance'));

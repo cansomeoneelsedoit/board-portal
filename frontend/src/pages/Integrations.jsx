@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Cloud, Mail, MessageSquare, PenTool, Plug, RefreshCw } from 'lucide-react'
+import { Mail, MessageSquare, PenTool, Plug, RefreshCw } from 'lucide-react'
 import api, { endpoints } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Badge, Card, DataState, PageHeader } from '../components/ui'
+import SharePointSetup from '../components/SharePointSetup'
 
+// SharePoint is a real integration handled by SharePointSetup; the rest are
+// still placeholder rows in the Integration table.
 const CATALOGUE = {
-  sharepoint: { label: 'SharePoint',       icon: Cloud,         blurb: 'Sync board packs from a document library' },
   outlook:    { label: 'Outlook Calendar', icon: Mail,          blurb: 'Push meetings and invitations to calendars' },
   teams:      { label: 'Microsoft Teams',  icon: MessageSquare, blurb: 'Create a meeting link for each sitting' },
   docusign:   { label: 'DocuSign',         icon: PenTool,       blurb: 'Circulate minutes for electronic signature' },
@@ -16,7 +18,8 @@ export default function Integrations() {
   const [busy, setBusy] = useState(null)
   const [saveError, setSaveError] = useState(null)
 
-  const integrations = data || []
+  // SharePoint has its own card below with live connection state.
+  const integrations = (data || []).filter((i) => i.provider !== 'sharepoint')
 
   const toggle = async (integration) => {
     const next = integration.status === 'CONNECTED' ? 'DISCONNECTED' : 'CONNECTED'
@@ -43,6 +46,8 @@ export default function Integrations() {
           </button>
         }
       />
+
+      <SharePointSetup />
 
       {saveError && (
         <div className="bp-card p-3 text-sm" style={{ color: 'var(--bp-danger-fg)' }}>

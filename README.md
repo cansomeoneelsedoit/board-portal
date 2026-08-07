@@ -131,6 +131,8 @@ Build and start behaviour lives in `backend/railway.json` and
 | backend | `SEED_DEMO_DATA` | `1` to seed on boot, otherwise `0` |
 | backend | `CORS_ORIGIN` | `*`, or the frontend origin |
 | frontend | `VITE_API_URL` | backend URL **including `/api`** — baked in at build time |
+| backend | `MICROSOFT_TENANT_ID` / `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | SharePoint board packs — see [SHAREPOINT.md](SHAREPOINT.md) |
+| backend | `SHAREPOINT_SITE_ID` | default site for the folder browser |
 
 `SEED_DEMO_DATA` is deliberately `0` in production. The seed rebuilds the demo
 board's meetings each run, so leaving it on would discard real data on every
@@ -146,6 +148,8 @@ Mounted under `API_PREFIX` (default `/api`).
 |---|---|
 | `GET /health` | Status plus a real `SELECT 1` against Postgres |
 | `GET /api/dashboard` | Aggregate — stats, upcoming meetings, activity stream |
+| `/api/sharepoint/*` | Connection status and folder picker — see [SHAREPOINT.md](SHAREPOINT.md) |
+| `/api/documents` | Board packs, read live from SharePoint when linked |
 | `/api/meetings` | Hydrates board, agenda + documents, invitations, attendance, motions + votes, minutes |
 | `/api/documents`, `/api/motions`, `/api/minutes`, `/api/attendance`, `/api/coi`, `/api/proxies`, `/api/integrations`, `/api/users`, `/api/boards`, `/api/agenda`, `/api/votes`, `/api/audit` | Generic CRUD with relation includes |
 

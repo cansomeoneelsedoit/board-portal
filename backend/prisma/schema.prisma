@@ -37,6 +37,13 @@ model Board {
   orgKey      String?
   createdAt   DateTime @default(now())
 
+  // SharePoint destination for this board's packs. Files live there, not here.
+  sharepointSiteId     String?
+  sharepointDriveId    String?
+  sharepointFolderId   String?
+  sharepointFolderName String?
+  sharepointWebUrl     String?
+
   meetings    Meeting[]
   members     BoardMember[]
 
@@ -85,6 +92,12 @@ model AgendaItem {
   documents   Document[]
 }
 
+/// A board pack paper.
+///
+/// When source is SHAREPOINT the bytes live in SharePoint and this row holds
+/// only the pointer plus the governance metadata SharePoint has no concept of
+/// (which agenda item it belongs to, tags). `path` is used only by legacy
+/// LOCAL documents written to disk before the SharePoint integration.
 model Document {
   id           String   @id @default(uuid())
   agendaItemId String?
@@ -93,11 +106,23 @@ model Document {
   filename     String
   mimetype     String?
   size         Int?
-  path         String
+  path         String?
   tags         String   @default("")
   createdAt    DateTime @default(now())
-  
+
+  source           String    @default("LOCAL") // LOCAL | SHAREPOINT
+  sharepointDriveId String?
+  sharepointItemId  String?
+  sharepointWebUrl  String?
+  sharepointFolder  String?  // sub-folder name, usually the meeting
+  etag             String?
+  modifiedAt       DateTime?
+  lastSyncedAt     DateTime?
+
   agendaItem   AgendaItem? @relation(fields: [agendaItemId], references: [id])
+
+  @@unique([sharepointDriveId, sharepointItemId])
+  @@index([meetingId])
 }
 
 model Invitation {
