@@ -1,9 +1,97 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Cloud, CloudOff, ChevronRight, Folder, ExternalLink, Check, AlertCircle, Loader2, Home,
 } from 'lucide-react'
 import api from '../lib/api'
 import { Card, CardHeader } from './ui'
+
+/**
+ * Sign in to Microsoft with the device authorization grant.
+ *
+ * The user gets a short code, opens microsoft.com/devicelogin in their own
+ * browser, and approves there — no password ever passes through this app, and
+ * no Azure redirect URI or admin consent is needed.
+ */
+function MicrosoftSignIn({ onConnected }) {
+  const [flow, setFlow] = useState(null)
+  const [state, setState] = useState('idle')   // idle | waiting | done | error
+  const [message, setMessage] = useState(null)
+  const cancelled = useRef(false)
+
+  useEffect(() => () => { cancelled.current = true }, [])
+
+  const start = async () => {
+    setState('waiting')
+    setMessage(null)
+    try {
+      const { data } = await api.post('/sharepoint/connect/start', {})
+      setFlow(data)
+
+      const deadline = Date.now() + data.expiresIn * 1000
+      let interval = (data.interval || 5) * 1000
+
+      while (!cancelled.current && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, interval))
+        if (cancelled.current) return
+        const res = await api.post('/sharepoint/connect/complete', { deviceCode: data.deviceCode })
+        if (res.data.pending) {
+          if (res.data.slowDown) interval += 5000
+          continue
+        }
+        setState('done')
+        setFlow(null)
+        onConnected?.()
+        return
+      }
+      setState('error')
+      setMessage('The sign-in code expired. Start again.')
+    } catch (e) {
+      setState('error')
+      setMessage(e.message)
+      setFlow(null)
+    }
+  }
+
+  if (state === 'waiting' && flow) {
+    return (
+      <div className="bp-card p-4 space-y-3">
+        <p className="text-sm font-medium">Finish signing in</p>
+        <ol className="text-sm bp-muted list-decimal ml-5 space-y-1">
+          <li>
+            Open{' '}
+            <a href={flow.verificationUri} target="_blank" rel="noreferrer" className="bp-link">
+              {flow.verificationUri}
+            </a>
+          </li>
+          <li>Enter this code, then sign in with the account that can see the board-packs site:</li>
+        </ol>
+        <div
+          className="text-2xl font-bold tracking-[0.3em] text-center py-3 rounded-md"
+          style={{ background: 'var(--bp-neutral-bg)' }}
+        >
+          {flow.userCode}
+        </div>
+        <p className="text-xs bp-subtle flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" /> Waiting for you to approve…
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <button onClick={start} disabled={state === 'waiting'} className="bp-btn bp-btn-primary">
+        <Cloud size={15} /> Sign in with Microsoft
+      </button>
+      <p className="text-xs bp-muted">
+        Uses the permissions the app registration already has, so this needs no Azure admin.
+      </p>
+      {message && (
+        <p className="text-sm" style={{ color: 'var(--bp-danger-fg)' }}>{message}</p>
+      )}
+    </div>
+  )
+}
 
 /**
  * SharePoint destination picker.
@@ -160,6 +248,31 @@ export default function SharePointSetup() {
           <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--bp-danger-fg)' }}>
             <AlertCircle size={15} className="mt-0.5 shrink-0" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {/* Sign-in with a Microsoft account. Works with the delegated
+            permissions the app registration already has, so it needs no Azure
+            admin — this is the way through when consent is unavailable. */}
+        {status?.configured && !status?.reachable && status?.canSignIn && (
+          <MicrosoftSignIn onConnected={loadStatus} />
+        )}
+
+        {status?.mode === 'delegated' && status?.account && (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="bp-chip bp-chip--success w-8 h-8"><Check size={15} /></span>
+            <span className="flex-1">
+              Signed in as <strong>{status.account}</strong>
+              <span className="block text-xs bp-muted">
+                Board Portal reads and writes SharePoint as this account
+              </span>
+            </span>
+            <button
+              onClick={async () => { await api.delete('/sharepoint/connect'); loadStatus() }}
+              className="bp-btn bp-btn-secondary"
+            >
+              Sign out
+            </button>
           </div>
         )}
 

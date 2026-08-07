@@ -1,10 +1,13 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { getAppAccessToken, resetTokenCache, getTokenRoles } = require('../lib/graph/auth');
+const { getAppAccessToken, getGraphToken, resetTokenCache, getTokenRoles } = require('../lib/graph/auth');
 const { graphFetch } = require('../lib/graph/client');
 const { isConfigured, getDefaultSiteId } = require('../lib/graph/config');
 const sp = require('../lib/graph/sharepoint');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
+const {
+  startDeviceLogin, completeDeviceLogin, getConnectedAccount, disconnectAccount,
+} = require('../lib/graph/auth-device');
 
 const router = express.Router();
 
@@ -45,44 +48,59 @@ router.get('/status', async (req, res) => {
   }
 
   // Prove the credentials actually work rather than just reporting they exist.
+  const account = await getConnectedAccount();
+
   try {
-    const token = await getAppAccessToken();
+    const { token, mode } = await getGraphToken();
 
-    // A token proves nothing on its own — client credentials issues one even for
-    // an app with zero application permissions, which then 401s on every call.
-    const roles = getTokenRoles(token);
-    const canReadSites = roles.some((r) => /^Sites\.(Read|ReadWrite|Selected|Manage|FullControl)/i.test(r));
+    // App-only tokens carry `roles`; a token is issued even for an app with no
+    // application permissions at all, and that token 401s on every call. So in
+    // application mode, check the roles before claiming anything works.
+    // Delegated tokens carry `scp` instead and are checked by the probe below.
+    if (mode === 'application') {
+      const roles = getTokenRoles(token);
+      const canReadSites = roles.some((r) => /^Sites\.(Read|ReadWrite|Selected|Manage|FullControl)/i.test(r));
 
-    if (!canReadSites) {
-      return res.json({
-        configured: true,
-        linked,
-        reachable: false,
-        roles,
-        message:
-          roles.length === 0
-            ? 'The app registration has no application permissions. Add Microsoft Graph > ' +
-              'Application permissions > Sites.ReadWrite.All and click "Grant admin consent". ' +
-              '(A delegated permission is not enough — this service signs in as itself.)'
-            : `The app registration grants [${roles.join(', ')}] but not Sites.ReadWrite.All. ` +
-              'Add it under Application permissions and grant admin consent.',
-        board: board ? { id: board.id, name: board.name } : null,
-        folder: null,
-      });
+      if (!canReadSites) {
+        return res.json({
+          configured: true,
+          linked,
+          reachable: false,
+          mode,
+          account: null,
+          canSignIn: true,
+          roles,
+          message:
+            roles.length === 0
+              ? 'No admin consent yet. Either sign in with a Microsoft account below (uses the ' +
+                'delegated permissions the app already has, no admin needed), or ask an Azure ' +
+                'admin to add the application permission Sites.ReadWrite.All and grant consent.'
+              : `The app registration grants [${roles.join(', ')}] but not Sites.ReadWrite.All. ` +
+                'Sign in with a Microsoft account below, or add that application permission.',
+          board: board ? { id: board.id, name: board.name } : null,
+          folder: null,
+        });
+      }
     }
 
-    // Sites.Selected grants nothing until the site is explicitly shared, so make
-    // one real call before claiming we are connected.
+    // Sites.Selected grants nothing until the site is explicitly shared, and a
+    // delegated token only reaches what its owner can reach — so make one real
+    // call before claiming we are connected.
     const probe = await graphFetch(token, '/sites/root?$select=id');
     if (!probe.ok && (probe.status === 401 || probe.status === 403)) {
       return res.json({
         configured: true,
         linked,
         reachable: false,
-        roles,
+        mode,
+        account: account?.account || null,
+        canSignIn: true,
         message:
-          `Graph rejected the request (${probe.status}). If the app uses Sites.Selected, the ` +
-          'board-packs site must be shared with it explicitly.',
+          mode === 'delegated'
+            ? `Graph rejected the signed-in account (${probe.status}). It may not have access to ` +
+              'this SharePoint site — try reconnecting with an account that does.'
+            : `Graph rejected the request (${probe.status}). If the app uses Sites.Selected, the ` +
+              'board-packs site must be shared with it explicitly.',
         board: board ? { id: board.id, name: board.name } : null,
         folder: null,
       });
@@ -96,7 +114,12 @@ router.get('/status', async (req, res) => {
       configured: true,
       linked,
       reachable: true,
-      message: linked ? 'Connected' : 'Credentials valid — choose a destination folder',
+      mode,
+      account: account?.account || null,
+      canSignIn: true,
+      message: linked
+        ? `Connected${mode === 'delegated' && account?.account ? ` as ${account.account}` : ''}`
+        : 'Connected — choose a destination folder',
       board: board ? { id: board.id, name: board.name } : null,
       folder: folder
         ? {
@@ -120,6 +143,42 @@ router.get('/status', async (req, res) => {
   }
 });
 
+/*
+ * Sign in with a Microsoft account (device authorization grant).
+ *
+ * This is the route that needs no Azure change: no redirect URI, no admin
+ * consent. The user opens the verification URL, types the code, and approves
+ * with their own account — Board Portal then acts with that person's rights.
+ */
+router.post('/connect/start', async (req, res) => {
+  try {
+    res.json(await startDeviceLogin());
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/** Poll until the user finishes approving. Returns {pending:true} until then. */
+router.post('/connect/complete', async (req, res) => {
+  try {
+    const { deviceCode } = req.body || {};
+    if (!deviceCode) return res.status(400).json({ error: 'deviceCode is required' });
+    res.json(await completeDeviceLogin(deviceCode));
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/** Forget the signed-in account. Files in SharePoint are untouched. */
+router.delete('/connect', async (req, res) => {
+  try {
+    await disconnectAccount();
+    res.json({ disconnected: true });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
 /** Resolve a site by "host:/sites/Name" or by site id. */
 router.get('/site', async (req, res) => {
   try {
@@ -129,7 +188,7 @@ router.get('/site', async (req, res) => {
         error: 'No site specified. Pass ?siteId=contoso.sharepoint.com:/sites/BoardPacks or set SHAREPOINT_SITE_ID.',
       });
     }
-    const token = await getAppAccessToken();
+    const { token } = await getGraphToken();
     res.json(await sp.getSite(token, siteId));
   } catch (error) {
     handle(res, error);
@@ -141,7 +200,7 @@ router.get('/drives', async (req, res) => {
   try {
     const siteId = (req.query.siteId || getDefaultSiteId() || '').trim();
     if (!siteId) return res.status(400).json({ error: 'siteId is required' });
-    const token = await getAppAccessToken();
+    const { token } = await getGraphToken();
     res.json(await sp.listSiteDrives(token, siteId));
   } catch (error) {
     handle(res, error);
@@ -153,7 +212,7 @@ router.get('/folders', async (req, res) => {
   try {
     const { driveId, folderId = 'root' } = req.query;
     if (!driveId) return res.status(400).json({ error: 'driveId is required' });
-    const token = await getAppAccessToken();
+    const { token } = await getGraphToken();
     res.json(await sp.listFolders(token, driveId, folderId));
   } catch (error) {
     handle(res, error);
@@ -171,7 +230,7 @@ router.post('/destination', async (req, res) => {
     const board = await resolveBoard(boardId);
     if (!board) return res.status(404).json({ error: 'No board found' });
 
-    const token = await getAppAccessToken();
+    const { token } = await getGraphToken();
     const folder = await sp.getFolderDetails(token, driveId, folderId);
 
     const updated = await prisma.board.update({

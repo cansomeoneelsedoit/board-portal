@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { getAppAccessToken } = require('../lib/graph/auth');
+const { getGraphToken } = require('../lib/graph/auth');
 const { isConfigured } = require('../lib/graph/config');
 const sp = require('../lib/graph/sharepoint');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
@@ -50,7 +50,7 @@ function meetingFolderName(meeting) {
  * Returns the reconciled rows.
  */
 async function reconcile(board) {
-  const token = await getAppAccessToken();
+  const { token } = await getGraphToken();
   const remote = await sp.listBoardDocuments(token, {
     driveId: board.sharepointDriveId,
     folderId: board.sharepointFolderId,
@@ -184,7 +184,7 @@ router.post('/upload', async (req, res) => {
       : null;
     const segments = [meetingFolderName(meeting)];
 
-    const token = await getAppAccessToken();
+    const { token } = await getGraphToken();
     const uploaded = await sp.uploadDocument(
       token,
       { driveId: board.sharepointDriveId, folderId: board.sharepointFolderId },
@@ -240,7 +240,7 @@ router.get('/:id/download', async (req, res) => {
       return res.status(409).json({ error: 'This document is not stored in SharePoint' });
     }
 
-    const token = await getAppAccessToken();
+    const { token } = await getGraphToken();
     const url = await sp.getDownloadUrl(token, doc.sharepointDriveId, doc.sharepointItemId);
     if (!url) return res.status(404).json({ error: 'No download URL available' });
     res.redirect(url);
@@ -276,7 +276,7 @@ router.delete('/:id', async (req, res) => {
     if (!doc) return res.status(404).json({ error: 'Not found' });
 
     if (doc.source === 'SHAREPOINT' && doc.sharepointItemId) {
-      const token = await getAppAccessToken();
+      const { token } = await getGraphToken();
       await sp.deleteItem(token, doc.sharepointDriveId, doc.sharepointItemId);
     }
 

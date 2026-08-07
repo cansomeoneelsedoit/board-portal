@@ -227,6 +227,27 @@ model MinutesApproval {
   user      User    @relation(fields: [userId], references: [id])
 }
 
+/// A signed-in Microsoft account, used for delegated Graph access.
+///
+/// The app-only (client-credentials) path needs an Azure admin to grant an
+/// application permission. Delegated access instead borrows a real person's
+/// rights, which works with the delegated permissions an app registration
+/// usually already has — so this is the path that needs no admin.
+///
+/// Only ever one row: the account board packs are read and written as.
+model GraphAccount {
+  id           String   @id @default(uuid())
+  tenantId     String
+  clientId     String
+  account      String?  // UPN of the signed-in user, for display
+  refreshToken String
+  scopes       String   @default("")
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, clientId])
+}
+
 model Integration {
   id        String   @id @default(uuid())
   provider  String   @unique

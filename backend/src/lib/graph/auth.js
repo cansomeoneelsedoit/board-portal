@@ -80,4 +80,23 @@ function getTokenRoles(accessToken) {
   }
 }
 
-module.exports = { getAppAccessToken, resetTokenCache, getTokenRoles };
+/**
+ * The token everything else should use.
+ *
+ * Prefers a signed-in Microsoft account (delegated) because that works with the
+ * delegated permissions an app registration usually already has. Falls back to
+ * app-only, which is tidier for a service but needs an Azure admin to grant an
+ * application permission first.
+ */
+async function getGraphToken() {
+  // Required lazily: auth-device pulls in Prisma, which this module must not
+  // depend on for the pure app-only path.
+  const { getDelegatedAccessToken } = require('./auth-device');
+
+  const delegated = await getDelegatedAccessToken();
+  if (delegated) return { token: delegated, mode: 'delegated' };
+
+  return { token: await getAppAccessToken(), mode: 'application' };
+}
+
+module.exports = { getAppAccessToken, getGraphToken, resetTokenCache, getTokenRoles };
