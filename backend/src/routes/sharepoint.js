@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { getAppAccessToken, resetTokenCache } = require('../lib/graph/auth');
+const { getAppAccessToken, resetTokenCache, getTokenRoles } = require('../lib/graph/auth');
+const { graphFetch } = require('../lib/graph/client');
 const { isConfigured, getDefaultSiteId } = require('../lib/graph/config');
 const sp = require('../lib/graph/sharepoint');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
@@ -46,6 +47,47 @@ router.get('/status', async (req, res) => {
   // Prove the credentials actually work rather than just reporting they exist.
   try {
     const token = await getAppAccessToken();
+
+    // A token proves nothing on its own — client credentials issues one even for
+    // an app with zero application permissions, which then 401s on every call.
+    const roles = getTokenRoles(token);
+    const canReadSites = roles.some((r) => /^Sites\.(Read|ReadWrite|Selected|Manage|FullControl)/i.test(r));
+
+    if (!canReadSites) {
+      return res.json({
+        configured: true,
+        linked,
+        reachable: false,
+        roles,
+        message:
+          roles.length === 0
+            ? 'The app registration has no application permissions. Add Microsoft Graph > ' +
+              'Application permissions > Sites.ReadWrite.All and click "Grant admin consent". ' +
+              '(A delegated permission is not enough — this service signs in as itself.)'
+            : `The app registration grants [${roles.join(', ')}] but not Sites.ReadWrite.All. ` +
+              'Add it under Application permissions and grant admin consent.',
+        board: board ? { id: board.id, name: board.name } : null,
+        folder: null,
+      });
+    }
+
+    // Sites.Selected grants nothing until the site is explicitly shared, so make
+    // one real call before claiming we are connected.
+    const probe = await graphFetch(token, '/sites/root?$select=id');
+    if (!probe.ok && (probe.status === 401 || probe.status === 403)) {
+      return res.json({
+        configured: true,
+        linked,
+        reachable: false,
+        roles,
+        message:
+          `Graph rejected the request (${probe.status}). If the app uses Sites.Selected, the ` +
+          'board-packs site must be shared with it explicitly.',
+        board: board ? { id: board.id, name: board.name } : null,
+        folder: null,
+      });
+    }
+
     let folder = null;
     if (linked) {
       folder = await sp.getFolderDetails(token, board.sharepointDriveId, board.sharepointFolderId);

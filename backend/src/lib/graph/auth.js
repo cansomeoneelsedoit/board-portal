@@ -63,4 +63,21 @@ function resetTokenCache() {
   tokenCache.clear();
 }
 
-module.exports = { getAppAccessToken, resetTokenCache };
+/**
+ * Application roles baked into a token.
+ *
+ * Client credentials happily issues a token for any valid app+secret, even one
+ * with no application permissions at all — that token then 401s on every call.
+ * Reading the `roles` claim is how we tell "credentials are wrong" apart from
+ * "admin consent was never granted", which are very different fixes.
+ */
+function getTokenRoles(accessToken) {
+  try {
+    const payload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64').toString());
+    return Array.isArray(payload.roles) ? payload.roles : [];
+  } catch {
+    return [];
+  }
+}
+
+module.exports = { getAppAccessToken, resetTokenCache, getTokenRoles };
