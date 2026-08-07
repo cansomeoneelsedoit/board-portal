@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "start:railway": "prisma generate && prisma db push --skip-generate && node src/seed-if-enabled.js && node src/server.js",
+    "start:railway": "prisma generate && prisma db push --skip-generate --accept-data-loss && node src/seed-if-enabled.js && node src/server.js",
     "dev": "nodemon src/server.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
