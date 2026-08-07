@@ -9,6 +9,9 @@ import { Card, DataState, PageHeader } from '../components/ui'
 
 export default function Documents() {
   const { data, loading, error, refetch } = useApi(endpoints.documents())
+  // Whether credentials *work*, not merely whether they are set — a token can be
+  // issued for an app registration that has no permissions at all.
+  const { data: spStatus } = useApi('/sharepoint/status')
   const [search, setSearch] = useState('')
   const [tag, setTag] = useState('all')
   const [busy, setBusy] = useState(null)
@@ -135,11 +138,20 @@ export default function Documents() {
         <Card className="p-4 flex items-start gap-3">
           <span className="bp-chip bp-chip--warning w-9 h-9 shrink-0"><CloudOff size={18} /></span>
           <div className="text-sm">
-            <p className="font-medium">SharePoint is not linked yet</p>
+            <p className="font-medium">
+              {configured && spStatus && !spStatus.reachable
+                ? 'SharePoint access is not granted yet'
+                : 'SharePoint is not linked yet'}
+            </p>
             <p className="bp-muted mt-1">
-              {configured
-                ? 'Credentials are set — choose a destination folder on the Integrations page to start storing board packs in SharePoint.'
-                : 'Add the Microsoft credentials to the backend, then pick a destination folder on the Integrations page. Until then this list shows locally recorded documents only.'}
+              {!configured
+                ? 'Add the Microsoft credentials to the backend, then pick a destination folder on the Integrations page. Until then this list shows locally recorded documents only.'
+                : spStatus && !spStatus.reachable
+                  ? spStatus.message
+                  : 'Credentials are working — choose a destination folder on the Integrations page to start storing board packs in SharePoint.'}
+            </p>
+            <p className="bp-subtle mt-2 text-xs">
+              This list shows locally recorded documents only.
             </p>
           </div>
         </Card>
