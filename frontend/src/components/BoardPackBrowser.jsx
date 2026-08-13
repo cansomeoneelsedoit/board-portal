@@ -127,6 +127,17 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
           </span>
         )}
 
+        {/* Two ways back: an explicit Up button, and clickable breadcrumbs. */}
+        {trail.length > 1 && (
+          <button
+            onClick={() => jumpTo(trail.length - 2)}
+            disabled={loading}
+            className="bp-btn bp-btn-secondary"
+            title={`Back to ${trail[trail.length - 2]?.name}`}
+          >
+            <ArrowLeft size={14} /> Back
+          </button>
+        )}
         {trail.length > 0 && <Home size={13} className="bp-subtle shrink-0" />}
         {trail.map((t, i) => (
           <span key={`${t.id}-${i}`} className="flex items-center gap-1 min-w-0">
@@ -134,7 +145,14 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
             {i === trail.length - 1 ? (
               <span className="font-medium truncate">{t.name}</span>
             ) : (
-              <button onClick={() => jumpTo(i)} className="bp-muted hover:underline truncate">{t.name}</button>
+              <button
+                onClick={() => jumpTo(i)}
+                className="truncate underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                style={{ color: 'var(--bp-primary)' }}
+                title={`Go to ${t.name}`}
+              >
+                {t.name}
+              </button>
             )}
           </span>
         ))}
