@@ -94,10 +94,15 @@ export default function AttendanceRoll({ meetingId }) {
 
               {canMark ? (
                 <div className="flex items-center gap-1 shrink-0">
+                  {/* Green when marked present, red when apology — the roll
+                      reads by colour from across the room. */}
                   <button
                     onClick={() => mark(row, true)}
                     disabled={busy === row.userId}
-                    className={row.present === true ? 'bp-btn bp-btn-primary' : 'bp-btn bp-btn-secondary'}
+                    className="bp-btn bp-btn-secondary"
+                    style={row.present === true
+                      ? { background: 'var(--bp-success-bg)', color: 'var(--bp-success-fg)', borderColor: 'var(--bp-success-fg)', fontWeight: 600 }
+                      : undefined}
                     title="Mark present"
                   >
                     <Check size={14} /> Present
@@ -105,7 +110,10 @@ export default function AttendanceRoll({ meetingId }) {
                   <button
                     onClick={() => mark(row, false)}
                     disabled={busy === row.userId}
-                    className={row.present === false ? 'bp-btn bp-btn-primary' : 'bp-btn bp-btn-secondary'}
+                    className="bp-btn bp-btn-secondary"
+                    style={row.present === false
+                      ? { background: 'var(--bp-danger-bg)', color: 'var(--bp-danger-fg)', borderColor: 'var(--bp-danger-fg)', fontWeight: 600 }
+                      : undefined}
                     title="Mark apology"
                   >
                     <X size={14} /> Apology

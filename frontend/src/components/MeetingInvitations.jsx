@@ -9,6 +9,20 @@ import { useSession } from '../lib/useSession'
 
 const RSVPS = ['PENDING', 'ACCEPTED', 'DECLINED', 'TENTATIVE']
 
+// Tint the RSVP control by its answer so the list reads at a glance:
+// green = coming, red = not, amber = maybe, grey = no answer yet.
+const RSVP_TONE = { ACCEPTED: 'success', DECLINED: 'danger', TENTATIVE: 'warning', PENDING: 'neutral' }
+
+const rsvpStyle = (rsvp) => {
+  const tone = RSVP_TONE[rsvp] || 'neutral'
+  return {
+    background: `var(--bp-${tone}-bg)`,
+    color: `var(--bp-${tone}-fg)`,
+    borderColor: `var(--bp-${tone}-fg)`,
+    fontWeight: 500,
+  }
+}
+
 export default function MeetingInvitations({ meetingId }) {
   const { data, loading, error, refetch } = useApi(`/invitations?meetingId=${encodeURIComponent(meetingId)}`)
   const { capabilities } = useSession()
@@ -125,6 +139,7 @@ export default function MeetingInvitations({ meetingId }) {
                   onChange={(e) => setRsvp(inv, e.target.value)}
                   disabled={busy === inv.id}
                   className="bp-input text-xs py-1"
+                  style={rsvpStyle(inv.rsvp)}
                 >
                   {RSVPS.map((r) => (
                     <option key={r} value={r}>{humanise(r)}</option>
