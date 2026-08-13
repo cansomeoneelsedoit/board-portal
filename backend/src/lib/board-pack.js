@@ -141,8 +141,22 @@ const isReferenceFolder = (name) => dateFromFolderName(name) === null;
  * "05 Financial & Grand Treasurer's Reports" -> 5, "10.01 Grand Registrar" -> 10.
  */
 function agendaNumberFromFolderName(name) {
-  const m = String(name || '').match(/^\s*(\d+)/);
+  // Dotted numbers are sub-items: "10.01 Grand Registrar" -> 10.01.
+  const m = String(name || '').match(/^\s*(\d+(?:\.\d+)?)/);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * Split a pack folder name into an agenda number and title.
+ * "03 Conflict of Interest" -> { number: "3", title: "Conflict of Interest" }
+ * "10.01 Grand Registrar"  -> { number: "10.01", title: "Grand Registrar" }
+ */
+function agendaItemFromFolderName(name) {
+  const m = String(name || '').trim().match(/^(\d+(?:\.\d+)?)[.\s\-–—]*(.*)$/);
+  if (!m || !m[2]) return null;
+  // Strip a leading zero on whole numbers ("03" -> "3") but keep dotted parts.
+  const number = m[1].includes('.') ? m[1] : String(Number(m[1]));
+  return { number, title: m[2].trim(), sort: Number(m[1]) };
 }
 
 /**

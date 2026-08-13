@@ -106,63 +106,8 @@ export default function MeetingDetail() {
           what was declared, what was resolved. These used to be separate
           top-level registers, which made one meeting read as six unrelated
           lists. */}
-      <MeetingTabs meeting={meeting} />
+      <MeetingTabs meeting={meeting} received={received} declarations={declarations} />
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader title={`Agenda (${agenda.length})`} />
-          {agenda.length === 0 ? (
-            <DataState empty emptyLabel="No agenda items" />
-          ) : (
-            <div className="bp-divide">
-              {agenda.map((item) => (
-                <div key={item.id} className="p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="bp-chip bp-chip--primary w-8 h-8 shrink-0 text-xs font-semibold">
-                      {item.number}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{item.title}</p>
-                      <p className="text-xs bp-muted mt-0.5">
-                        {item.presenter || 'No presenter'}
-                        {item.duration ? ` · ${item.duration} min` : ''}
-                      </p>
-                      <ReceivedStamp info={received?.items?.find((r) => r.agendaItemId === item.id)} />
-                      <AgendaConflicts
-                        declarations={(declarations || []).filter((d) => d.agendaItemId === item.id)}
-                      />
-                      {item.notes && <p className="text-xs bp-muted mt-1">{item.notes}</p>}
-
-                      {(item.documents || []).length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          {item.documents.map((d) => {
-                            const fileStamp = received?.items
-                              ?.find((r) => r.agendaItemId === item.id)
-                              ?.files?.find((f) => f.name === d.name)
-                            return (
-                              <div key={d.id} className="flex items-center gap-2 text-xs bp-muted">
-                                <FileText size={12} className="shrink-0" />
-                                <span className="truncate">{d.name}</span>
-                                <span className="bp-subtle">{fmtBytes(d.size)}</span>
-                                {fileStamp?.status && <FileStatusBadge status={fileStamp.status} />}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <div className="space-y-6">
-          <MeetingInvitations meetingId={meeting.id} />
-
-        </div>
-      </div>
     </div>
   )
 }

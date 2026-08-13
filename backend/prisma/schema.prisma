@@ -141,6 +141,10 @@ model Meeting {
 model AgendaItem {
   id          String   @id @default(uuid())
   meetingId   String
+  /// When set, this item is derived from a pack folder and follows it: rename
+  /// the folder and the item renames, delete it and the item goes. Items
+  /// added by hand have no source and are never touched by the sync.
+  sourceFolderId String?
   number      String
   title       String
   presenter   String?

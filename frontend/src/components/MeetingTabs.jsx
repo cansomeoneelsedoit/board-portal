@@ -10,6 +10,8 @@ import { useSession } from '../lib/useSession'
 import { fmtDate, humanise } from '../lib/format'
 import { Avatar, Badge, DataState } from './ui'
 import BoardPackBrowser from './BoardPackBrowser'
+import MeetingInvitations from './MeetingInvitations'
+import { fmtBytes } from '../lib/format'
 import AttendanceRoll from './AttendanceRoll'
 
 /**
@@ -19,8 +21,8 @@ import AttendanceRoll from './AttendanceRoll'
  * what was declared and what was resolved all belong to the same sitting, so
  * they are tabs of one page rather than separate destinations.
  */
-export default function MeetingTabs({ meeting }) {
-  const [tab, setTab] = useState('attendance')
+export default function MeetingTabs({ meeting, received, declarations }) {
+  const [tab, setTab] = useState('agenda')
 
   const attendances = meeting.attendances || []
   const motions = meeting.motions || []
@@ -33,7 +35,9 @@ export default function MeetingTabs({ meeting }) {
   // Order follows how a meeting actually runs: who is here, what they must
   // declare, confirmation of the last minutes, then the papers, then what gets
   // resolved.
+  const agenda = meeting.agendaItems || []
   const tabs = [
+    { id: 'agenda',     label: 'Agenda',      icon: ClipboardList,  count: agenda.length },
     { id: 'attendance', label: 'Attendance',  icon: Users,          count: (meeting.invitations || []).length },
     // Quorum sits straight after the roll: mark attendance, then see at once
     // whether the meeting can transact business.
@@ -77,9 +81,17 @@ export default function MeetingTabs({ meeting }) {
         </div>
       )}
 
-      {tab === 'attendance' && (
+      {tab === 'agenda' && (
         <div className="p-4">
+          <AgendaPanel agenda={agenda} received={received} declarations={declarations} />
+        </div>
+      )}
+
+      {tab === 'attendance' && (
+        <div className="p-4 space-y-5">
           <AttendanceRoll meetingId={meeting.id} />
+          {/* Invitations live with the roll: who was asked sits beside who came. */}
+          <MeetingInvitations meetingId={meeting.id} />
         </div>
       )}
 
@@ -186,6 +198,67 @@ export default function MeetingTabs({ meeting }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * The agenda, first among the tabs: numbered items, each paper stamped for
+ * when it arrived, and any conflict pinned to the item warned right on it.
+ */
+function AgendaPanel({ agenda, received, declarations }) {
+  if (!agenda.length) {
+    return <DataState empty emptyLabel="No agenda items — sync from the pack or add them by hand" />
+  }
+  return (
+    <div className="bp-divide">
+      {agenda.map((item) => {
+        const stampInfo = received?.items?.find((r) => r.agendaItemId === item.id)
+        const itemConflicts = (declarations || []).filter((d) => d.agendaItemId === item.id)
+        return (
+          <div key={item.id} className="py-3 flex items-start gap-3">
+            <span className="bp-chip bp-chip--primary w-10 h-7 shrink-0 text-xs font-semibold">
+              {item.number}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">{item.title}</p>
+              <p className="text-xs bp-muted mt-0.5">
+                {item.presenter || 'No presenter'}
+                {item.duration ? ` · ${item.duration} min` : ''}
+              </p>
+
+              {(item.documents || []).length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {item.documents.map((d) => {
+                    const fileStamp = stampInfo?.files?.find((f) => f.name === d.name)
+                    return (
+                      <div key={d.id} className="flex flex-wrap items-center gap-2 text-xs bp-muted">
+                        <span className="truncate">{d.name}</span>
+                        <span className="bp-subtle">{fmtBytes(d.size)}</span>
+                        {fileStamp?.status && (
+                          <span className={`bp-badge bp-badge--${
+                            fileStamp.status === 'ON_TIME' ? 'success' : fileStamp.status === 'LATE' ? 'warning' : 'danger'
+                          }`}>
+                            {fileStamp.status === 'ON_TIME' ? 'on time' : fileStamp.status === 'LATE' ? 'late' : 'after board date'}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {itemConflicts.map((d) => (
+                <div key={d.id} className="mt-2 p-2 rounded-md text-xs"
+                  style={{ background: 'var(--bp-warning-bg)', color: 'var(--bp-warning-fg)' }}>
+                  <b>⚠ Conflict — {d.user?.name || 'Member'}:</b> {d.description}
+                  <span className="opacity-80"> ({humanise(d.effect === 'PENDING' ? 'not yet resolved' : d.effect)})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
