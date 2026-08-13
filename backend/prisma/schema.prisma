@@ -352,15 +352,28 @@ model COI {
   @@index([boardId])
 }
 
+/// A proxy lodged for a meeting.
+///
+/// Modelled on the FF SGM count sheets: the HOLDER is always a member, but the
+/// GRANTOR may be a member (fromUserId), or an entity — a lodge, company or
+/// association — recorded by name (grantorName + grantorKind). `votes` covers
+/// bulk lodgements ("Bill Merrill — 26 proxies") without 26 rows.
 model Proxy {
   id         String   @id @default(uuid())
   meetingId  String
-  fromUserId String
+  fromUserId String?
+  /// Entity grantor when fromUserId is null, e.g. "Lodge Reynell 243".
+  grantorName String?
+  /// MEMBER | LODGE | COMPANY | ASSOCIATION | OTHER
+  grantorKind String  @default("MEMBER")
   toUserId   String
+  votes      Int      @default(1)
   lodgedAt   DateTime @default(now())
-  
-  fromUser   User @relation("ProxyFrom", fields: [fromUserId], references: [id])
-  toUser     User @relation("ProxyTo", fields: [toUserId], references: [id])
+
+  fromUser   User? @relation("ProxyFrom", fields: [fromUserId], references: [id])
+  toUser     User  @relation("ProxyTo", fields: [toUserId], references: [id])
+
+  @@index([meetingId])
 }
 
 model Minutes {

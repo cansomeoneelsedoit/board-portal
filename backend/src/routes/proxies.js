@@ -4,34 +4,61 @@ const { requireAdmin } = require('../lib/session');
 
 const router = express.Router();
 
+const GRANTOR_KINDS = ['MEMBER', 'LODGE', 'COMPANY', 'ASSOCIATION', 'OTHER'];
+
 /**
- * Proxies live on the meeting: a member who cannot attend assigns their vote
- * to someone who can, for that sitting only — and only when the meeting was
- * scheduled with proxy voting allowed.
+ * Proxies live on the meeting. The holder is always a member on the invitation
+ * list; the grantor is a member, or an entity — lodge, company, association —
+ * recorded by name, exactly as the count sheets are kept.
  */
 router.get('/', async (req, res) => {
   try {
+    const where = req.query.meetingId ? { meetingId: req.query.meetingId } : {};
     const proxies = await prisma.proxy.findMany({
-      where: req.query.meetingId ? { meetingId: req.query.meetingId } : {},
+      where,
       include: { fromUser: true, toUser: true },
       orderBy: { lodgedAt: 'desc' },
     });
-    res.json(proxies);
+
+    // The count-sheet view: each holder's own vote plus the proxies they hold.
+    const byHolder = new Map();
+    for (const p of proxies) {
+      const key = p.toUserId;
+      if (!byHolder.has(key)) {
+        byHolder.set(key, { holder: p.toUser?.name || 'Unknown', ownVote: 1, proxyVotes: 0 });
+      }
+      byHolder.get(key).proxyVotes += p.votes || 1;
+    }
+    const summary = [...byHolder.values()]
+      .map((h) => ({ ...h, total: h.ownVote + h.proxyVotes }))
+      .sort((a, b) => b.total - a.total);
+
+    res.json({ proxies, summary });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-/** Register a proxy for a meeting. */
+/** Register a proxy: from a member, or from a lodge/company by name. */
 router.post('/', requireAdmin, async (req, res) => {
   try {
-    const { meetingId, fromUserId, toUserId } = req.body || {};
-    if (!meetingId || !fromUserId || !toUserId) {
-      return res.status(400).json({ error: 'Meeting, grantor and holder are all required' });
+    const { meetingId, fromUserId, grantorName, grantorKind, toUserId, votes } = req.body || {};
+    if (!meetingId || !toUserId) {
+      return res.status(400).json({ error: 'Meeting and holder are required' });
     }
-    if (fromUserId === toUserId) {
+    if (!fromUserId && !grantorName?.trim()) {
+      return res.status(400).json({ error: 'Name the member or entity granting the proxy' });
+    }
+    if (fromUserId && fromUserId === toUserId) {
       return res.status(400).json({ error: 'A member cannot hold their own proxy' });
     }
+
+    const kind = fromUserId ? 'MEMBER' : String(grantorKind || 'LODGE').toUpperCase();
+    if (!GRANTOR_KINDS.includes(kind)) {
+      return res.status(400).json({ error: `Grantor kind must be one of ${GRANTOR_KINDS.join(', ')}` });
+    }
+
+    const voteCount = Math.max(1, Math.min(1000, Number(votes) || 1));
 
     const meeting = await prisma.meeting.findUnique({
       where: { id: meetingId },
@@ -45,22 +72,33 @@ router.post('/', requireAdmin, async (req, res) => {
     }
 
     const invited = new Set(meeting.invitations.map((i) => i.userId));
-    if (!invited.has(fromUserId) || !invited.has(toUserId)) {
-      return res.status(400).json({ error: 'Both people must be on the invitation list for this meeting' });
+    if (!invited.has(toUserId)) {
+      return res.status(400).json({ error: 'The proxy holder must be on the invitation list' });
+    }
+    if (fromUserId && !invited.has(fromUserId)) {
+      return res.status(400).json({ error: 'The granting member must be on the invitation list' });
     }
 
-    // One proxy per grantor per meeting — re-registering replaces the holder.
-    const existing = await prisma.proxy.findFirst({ where: { meetingId, fromUserId } });
-    const proxy = existing
-      ? await prisma.proxy.update({
-          where: { id: existing.id },
-          data: { toUserId, lodgedAt: new Date() },
-          include: { fromUser: true, toUser: true },
-        })
-      : await prisma.proxy.create({
-          data: { meetingId, fromUserId, toUserId },
-          include: { fromUser: true, toUser: true },
+    // One lodgement per grantor per meeting: re-registering replaces it, for
+    // members and for named entities alike.
+    const existing = fromUserId
+      ? await prisma.proxy.findFirst({ where: { meetingId, fromUserId } })
+      : await prisma.proxy.findFirst({
+          where: { meetingId, grantorName: { equals: grantorName.trim(), mode: 'insensitive' } },
         });
+
+    const data = {
+      fromUserId: fromUserId || null,
+      grantorName: fromUserId ? null : grantorName.trim(),
+      grantorKind: kind,
+      toUserId,
+      votes: voteCount,
+      lodgedAt: new Date(),
+    };
+
+    const proxy = existing
+      ? await prisma.proxy.update({ where: { id: existing.id }, data, include: { fromUser: true, toUser: true } })
+      : await prisma.proxy.create({ data: { meetingId, ...data }, include: { fromUser: true, toUser: true } });
 
     res.status(existing ? 200 : 201).json(proxy);
   } catch (e) {

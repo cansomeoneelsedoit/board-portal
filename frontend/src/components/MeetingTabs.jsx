@@ -239,13 +239,21 @@ function ConflictAlerts({ meetingId }) {
  * the meeting must have been scheduled with proxy voting allowed.
  */
 function ProxiesPanel({ meeting }) {
-  const { data: proxies, loading, error, refetch } = useApi(`/proxies?meetingId=${encodeURIComponent(meeting.id)}`)
+  const { data, loading, error, refetch } = useApi(`/proxies?meetingId=${encodeURIComponent(meeting.id)}`)
   const { capabilities } = useSession()
+  // The grantor is a member on the list, or an entity - lodge, company,
+  // association - recorded by name, as the FF count sheets are kept.
+  const [grantorType, setGrantorType] = useState('MEMBER')
   const [fromId, setFromId] = useState('')
+  const [entityName, setEntityName] = useState('')
+  const [entityKind, setEntityKind] = useState('LODGE')
+  const [votes, setVotes] = useState(1)
   const [toId, setToId] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(null)
 
+  const proxies = data?.proxies || []
+  const summary = data?.summary || []
   const invitations = meeting.invitations || []
   const canManage = capabilities?.manageMeetings
 
@@ -262,8 +270,15 @@ function ProxiesPanel({ meeting }) {
     setBusy(true)
     setNotice(null)
     try {
-      await api.post('/proxies', { meetingId: meeting.id, fromUserId: fromId, toUserId: toId })
-      setFromId(''); setToId('')
+      await api.post('/proxies', {
+        meetingId: meeting.id,
+        toUserId: toId,
+        votes,
+        ...(grantorType === 'MEMBER'
+          ? { fromUserId: fromId }
+          : { grantorName: entityName, grantorKind: entityKind }),
+      })
+      setFromId(''); setEntityName(''); setVotes(1); setToId('')
       await refetch()
     } catch (e) {
       setNotice(e.message)
@@ -282,50 +297,122 @@ function ProxiesPanel({ meeting }) {
     }
   }
 
+  const KIND_LABEL = { LODGE: 'Lodge', COMPANY: 'Company', ASSOCIATION: 'Association', OTHER: 'Other' }
+
   return (
     <div className="space-y-4">
       {canManage && (
-        <div className="bp-card p-3 flex flex-wrap items-end gap-3">
-          <label className="block">
-            <span className="text-xs font-medium bp-muted">Member assigning their vote</span>
-            <select value={fromId} onChange={(e) => setFromId(e.target.value)} className="bp-input w-52 mt-1">
-              <option value="">Choose…</option>
-              {invitations.map((i) => (
-                <option key={i.userId} value={i.userId}>{i.user?.name}</option>
-              ))}
-            </select>
-          </label>
-          <ArrowRight size={16} className="bp-subtle mb-2.5" />
-          <label className="block">
-            <span className="text-xs font-medium bp-muted">Holds the proxy</span>
-            <select value={toId} onChange={(e) => setToId(e.target.value)} className="bp-input w-52 mt-1">
-              <option value="">Choose…</option>
-              {invitations.filter((i) => i.userId !== fromId).map((i) => (
-                <option key={i.userId} value={i.userId}>{i.user?.name}</option>
-              ))}
-            </select>
-          </label>
-          <button onClick={register} disabled={busy || !fromId || !toId} className="bp-btn bp-btn-primary">
-            Register proxy
-          </button>
-          {notice && <span className="text-sm w-full" style={{ color: 'var(--bp-danger-fg)' }}>{notice}</span>}
+        <div className="bp-card p-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-xs font-medium bp-muted">Proxy granted by</span>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" checked={grantorType === 'MEMBER'} onChange={() => setGrantorType('MEMBER')} />
+              A member
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" checked={grantorType === 'ENTITY'} onChange={() => setGrantorType('ENTITY')} />
+              A lodge, company or association
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            {grantorType === 'MEMBER' ? (
+              <label className="block">
+                <span className="text-xs font-medium bp-muted">Member assigning their vote</span>
+                <select value={fromId} onChange={(e) => setFromId(e.target.value)} className="bp-input w-52 mt-1">
+                  <option value="">Choose…</option>
+                  {invitations.map((i) => (
+                    <option key={i.userId} value={i.userId}>{i.user?.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <>
+                <label className="block">
+                  <span className="text-xs font-medium bp-muted">Entity name</span>
+                  <input value={entityName} onChange={(e) => setEntityName(e.target.value)}
+                    placeholder="Lodge Reynell 243" className="bp-input w-56 mt-1" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium bp-muted">Kind</span>
+                  <select value={entityKind} onChange={(e) => setEntityKind(e.target.value)} className="bp-input mt-1">
+                    <option value="LODGE">Lodge</option>
+                    <option value="COMPANY">Company</option>
+                    <option value="ASSOCIATION">Association</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </label>
+              </>
+            )}
+
+            <ArrowRight size={16} className="bp-subtle mb-2.5" />
+
+            <label className="block">
+              <span className="text-xs font-medium bp-muted">Holds the proxy</span>
+              <select value={toId} onChange={(e) => setToId(e.target.value)} className="bp-input w-52 mt-1">
+                <option value="">Choose…</option>
+                {invitations.filter((i) => grantorType !== 'MEMBER' || i.userId !== fromId).map((i) => (
+                  <option key={i.userId} value={i.userId}>{i.user?.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-medium bp-muted" title="Bulk lodgements: one entry, many votes">Votes</span>
+              <input type="number" min="1" max="1000" value={votes}
+                onChange={(e) => setVotes(Number(e.target.value) || 1)} className="bp-input w-20 mt-1 text-center" />
+            </label>
+
+            <button
+              onClick={register}
+              disabled={busy || !toId || (grantorType === 'MEMBER' ? !fromId : !entityName.trim())}
+              className="bp-btn bp-btn-primary"
+            >
+              Register proxy
+            </button>
+          </div>
+          {notice && <p className="text-sm" style={{ color: 'var(--bp-danger-fg)' }}>{notice}</p>}
+        </div>
+      )}
+
+      {/* The count sheet: each holder's own vote plus the proxies they hold. */}
+      {summary.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {summary.map((h) => (
+            <span key={h.holder} className="bp-badge bp-badge--info" title="Own vote + proxy votes">
+              {h.holder}: {h.ownVote} own + {h.proxyVotes} prox{h.proxyVotes === 1 ? 'y' : 'ies'} = {h.total} votes
+            </span>
+          ))}
         </div>
       )}
 
       <DataState
         loading={loading}
         error={error}
-        empty={!loading && !error && (proxies || []).length === 0}
+        empty={!loading && !error && proxies.length === 0}
         emptyLabel="No proxies registered for this meeting"
         onRetry={refetch}
       />
 
-      {(proxies || []).length > 0 && (
+      {proxies.length > 0 && (
         <div className="bp-divide">
           {proxies.map((p) => (
             <div key={p.id} className="py-2.5 flex items-center gap-3">
-              <Avatar name={p.fromUser?.name} initials={p.fromUser?.initials} size={28} />
-              <span className="text-sm font-medium">{p.fromUser?.name}</span>
+              {p.fromUser ? (
+                <>
+                  <Avatar name={p.fromUser.name} initials={p.fromUser.initials} size={28} />
+                  <span className="text-sm font-medium">{p.fromUser.name}</span>
+                </>
+              ) : (
+                <>
+                  <span className="bp-chip bp-chip--warning w-7 h-7 shrink-0 text-[10px] font-bold">
+                    {(p.grantorKind || 'E').slice(0, 1)}
+                  </span>
+                  <span className="text-sm font-medium">{p.grantorName}</span>
+                  <span className="bp-badge bp-badge--neutral">{KIND_LABEL[p.grantorKind] || p.grantorKind}</span>
+                </>
+              )}
+              {p.votes > 1 && <span className="bp-badge bp-badge--info">×{p.votes} votes</span>}
               <ArrowRight size={14} className="bp-subtle" />
               <Avatar name={p.toUser?.name} initials={p.toUser?.initials} size={28} />
               <span className="text-sm font-medium flex-1">{p.toUser?.name}</span>
