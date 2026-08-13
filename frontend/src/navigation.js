@@ -20,7 +20,6 @@ export const navGroups = [
     items: [
       { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/meetings',  icon: Calendar,        label: 'Meetings' },
-      { to: '/documents', icon: FolderOpen,      label: 'Library' },
       { to: '/register',  icon: ShieldAlert,    label: 'Register of Interests' },
     ],
   },
@@ -28,6 +27,9 @@ export const navGroups = [
     label: 'Administration',
     admin: true,
     items: [
+      // The whole-library browser is a secretary's tool - members reach their
+      // papers through each meeting's Board pack tab.
+      { to: '/documents',    icon: FolderOpen,  label: 'Library', admin: true },
       { to: '/admin',        icon: ShieldCheck, label: 'Board setup', admin: true },
       { to: '/integrations', icon: Settings,    label: 'Integrations', admin: true },
     ],
