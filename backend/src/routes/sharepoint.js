@@ -138,6 +138,10 @@ router.get('/status', async (req, res) => {
       configured: true,
       linked,
       reachable: false,
+      // Signing in is exactly the remedy for "no account and no secret", so
+      // the button must stay visible on this path.
+      canSignIn: true,
+      account: account?.account || null,
       message: error.message,
       board: board ? { id: board.id, name: board.name } : null,
       folder: null,
