@@ -10,6 +10,7 @@ import Attendance from './pages/Attendance'
 import COI from './pages/COI'
 import Proxies from './pages/Proxies'
 import Integrations from './pages/Integrations'
+import Admin from './pages/Admin'
 
 // Host verticals mount this app under a sub-path (e.g. /board-portal).
 const basename =
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="attendance" element={<Attendance />} />
           <Route path="coi" element={<COI />} />
           <Route path="proxies" element={<Proxies />} />
+          <Route path="admin" element={<Admin />} />
           <Route path="integrations" element={<Integrations />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

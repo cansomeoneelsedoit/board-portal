@@ -7,6 +7,7 @@ import { endpoints } from '../lib/api'
 import { fmtBytes, fmtDateTime, humanise } from '../lib/format'
 import { Avatar, Badge, Card, CardHeader, DataState, Field, PageHeader } from '../components/ui'
 import MeetingTabs from '../components/MeetingTabs'
+import MeetingInvitations from '../components/MeetingInvitations'
 
 export default function MeetingDetail() {
   const { id } = useParams()
@@ -120,25 +121,7 @@ export default function MeetingDetail() {
         </Card>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader title={`Invitations (${invitations.length})`} />
-            {invitations.length === 0 ? (
-              <DataState empty emptyLabel="Nobody invited yet" />
-            ) : (
-              <div className="p-4 space-y-3">
-                {invitations.map((inv) => (
-                  <div key={inv.id} className="flex items-center gap-3">
-                    <Avatar name={inv.user?.name} initials={inv.user?.initials} size={30} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{inv.user?.name || 'Unknown'}</p>
-                      <p className="text-xs bp-muted">{humanise(inv.role)}</p>
-                    </div>
-                    <Badge status={inv.rsvp} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+          <MeetingInvitations meetingId={meeting.id} />
 
         </div>
       </div>

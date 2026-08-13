@@ -41,6 +41,8 @@ api.get('/session', (req, res) => res.json(req.session));
 api.use('/dashboard', require('./routes/dashboard'));
 api.use('/users', require('./routes/users'));
 api.use('/boards', require('./routes/boards'));
+api.use('/board-members', require('./routes/board-members'));
+api.use('/invitations', require('./routes/invitations'));
 api.use('/meetings', require('./routes/meetings'));
 api.use('/agenda', require('./routes/agenda'));
 api.use('/documents', require('./routes/documents'));
