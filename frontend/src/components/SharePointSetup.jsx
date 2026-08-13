@@ -112,7 +112,24 @@ export default function SharePointSetup() {
   const [drive, setDrive] = useState(null)
   const [trail, setTrail] = useState([])          // [{id, name}] — 'root' first
   const [folders, setFolders] = useState([])
+  const [folderUrl, setFolderUrl] = useState('')
   const [working, setWorking] = useState(false)
+
+  /** Link the board straight to a pasted folder address. */
+  const useFolderUrl = async (e) => {
+    e?.preventDefault()
+    setWorking(true)
+    setError(null)
+    try {
+      await api.post('/sharepoint/destination', { url: folderUrl.trim() })
+      setFolderUrl('')
+      await loadStatus()
+    } catch (e2) {
+      setError(e2.message)
+    } finally {
+      setWorking(false)
+    }
+  }
 
   const loadStatus = async () => {
     setLoading(true)
@@ -320,6 +337,29 @@ export default function SharePointSetup() {
         {/* Configured and reachable but not linked — run the picker. */}
         {status?.configured && status?.reachable && !status?.linked && (
           <div className="space-y-4">
+            {/* Pasting the folder address is the quickest way in — this is the
+                top folder members will see, and everything under it appears as
+                they open it. */}
+            <form onSubmit={useFolderUrl} className="flex flex-wrap gap-2 items-end">
+              <label className="flex-1 min-w-[20rem]">
+                <span className="text-sm font-medium">Paste the SharePoint folder URL</span>
+                <input
+                  value={folderUrl}
+                  onChange={(e) => setFolderUrl(e.target.value)}
+                  placeholder="https://contoso.sharepoint.com/sites/Board/Shared%20Documents/Board%20Packs"
+                  className="bp-input w-full mt-1"
+                />
+                <span className="block text-xs bp-muted mt-1">
+                  Members see this folder and everything beneath it, read-only.
+                </span>
+              </label>
+              <button type="submit" disabled={working || !folderUrl.trim()} className="bp-btn bp-btn-primary">
+                {working ? 'Checking…' : 'Use this folder'}
+              </button>
+            </form>
+
+            <p className="text-xs bp-subtle">or browse for it</p>
+
             <form onSubmit={resolveSite} className="flex flex-wrap gap-2 items-end">
               <label className="flex-1 min-w-[18rem]">
                 <span className="text-sm font-medium">SharePoint site</span>

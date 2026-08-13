@@ -4,6 +4,7 @@ const { getGraphToken } = require('../lib/graph/auth');
 const { isConfigured } = require('../lib/graph/config');
 const sp = require('../lib/graph/sharepoint');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
+const { meetingFolderName } = require('../lib/board-pack');
 
 const router = express.Router();
 
@@ -30,15 +31,6 @@ const boardFor = async (boardId) =>
     : prisma.board.findFirst({ orderBy: { createdAt: 'asc' } });
 
 const isLinked = (board) => Boolean(board?.sharepointDriveId && board?.sharepointFolderId);
-
-/** Folder name for a meeting's papers: "2026-08-19 August Ordinary Meeting". */
-function meetingFolderName(meeting) {
-  if (!meeting) return 'General';
-  const date = meeting.date ? new Date(meeting.date).toISOString().slice(0, 10) : '';
-  // Windows/SharePoint reject these in names.
-  const safeTitle = String(meeting.title || 'Meeting').replace(/[\\/:*?"<>|#%]/g, '-').trim();
-  return date ? `${date} ${safeTitle}` : safeTitle;
-}
 
 /**
  * Make the Document rows match the SharePoint folder.

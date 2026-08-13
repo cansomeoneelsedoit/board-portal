@@ -67,6 +67,11 @@ model Meeting {
   status      String   @default("SCHEDULED")
   videoUrl    String?
   createdAt   DateTime @default(now())
+
+  // Board pack folder in SharePoint. Optional: when unset the pack is found by
+  // looking for a sub-folder named after the meeting under the board's root.
+  sharepointFolderId String?
+  sharepointWebUrl   String?
   
   board       Board        @relation(fields: [boardId], references: [id])
   agendaItems AgendaItem[]

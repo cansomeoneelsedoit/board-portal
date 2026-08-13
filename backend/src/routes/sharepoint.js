@@ -8,6 +8,7 @@ const { isGraphError, isConfigError } = require('../lib/graph/errors');
 const {
   startDeviceLogin, completeDeviceLogin, getConnectedAccount, disconnectAccount,
 } = require('../lib/graph/auth-device');
+const { meetingFolderName } = require('../lib/board-pack');
 
 const router = express.Router();
 
@@ -179,6 +180,150 @@ router.delete('/connect', async (req, res) => {
   }
 });
 
+/*
+ * Read-only browsing of the linked folder.
+ *
+ * Members walk the real SharePoint structure one level at a time. Nothing here
+ * writes, and no file bytes pass through this service — a file opens in
+ * SharePoint, which is also where its permissions are enforced.
+ */
+router.get('/browse', async (req, res) => {
+  try {
+    const board = await resolveBoard(req.query.boardId);
+    if (!board?.sharepointDriveId) {
+      return res.status(400).json({ error: 'No SharePoint folder linked for this board' });
+    }
+
+    // Default to the board's root folder; a folderId drills deeper.
+    const folderId = req.query.folderId || board.sharepointFolderId;
+
+    const { token } = await getGraphToken();
+    const [items, folder] = await Promise.all([
+      sp.listChildren(token, board.sharepointDriveId, folderId),
+      sp.getFolderDetails(token, board.sharepointDriveId, folderId),
+    ]);
+
+    res.json({
+      folder: { id: folder.id, name: folder.name, webUrl: folder.webUrl },
+      isRoot: folderId === board.sharepointFolderId,
+      root: {
+        id: board.sharepointFolderId,
+        name: board.sharepointFolderName,
+        webUrl: board.sharepointWebUrl,
+      },
+      items,
+    });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/**
+ * The board pack for one meeting.
+ *
+ * Uses the folder explicitly pinned to the meeting when there is one, otherwise
+ * looks for a sub-folder named after the meeting under the board's root. If
+ * neither exists the meeting simply has no pack yet — not an error.
+ */
+router.get('/pack/:meetingId', async (req, res) => {
+  try {
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: req.params.meetingId },
+      include: { board: true },
+    });
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const board = meeting.board;
+    if (!board?.sharepointDriveId) {
+      return res.json({ linked: false, folder: null, items: [] });
+    }
+
+    const { token } = await getGraphToken();
+
+    let folderId = meeting.sharepointFolderId;
+    let folder = null;
+
+    if (folderId) {
+      folder = await sp.getFolderDetails(token, board.sharepointDriveId, folderId);
+    } else {
+      const name = meetingFolderName(meeting);
+      folder = await sp.findChildFolder(token, board.sharepointDriveId, board.sharepointFolderId, name);
+      folderId = folder?.id || null;
+    }
+
+    if (!folderId) {
+      return res.json({
+        linked: true,
+        folder: null,
+        expectedFolder: meetingFolderName(meeting),
+        rootWebUrl: board.sharepointWebUrl,
+        items: [],
+      });
+    }
+
+    const items = await sp.listChildren(token, board.sharepointDriveId, folderId);
+
+    res.json({
+      linked: true,
+      folder: { id: folder.id, name: folder.name, webUrl: folder.webUrl },
+      items,
+    });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/** Pin a meeting's pack to a specific folder, by URL or by id. */
+router.post('/pack/:meetingId', async (req, res) => {
+  try {
+    const { url, folderId } = req.body || {};
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: req.params.meetingId },
+      include: { board: true },
+    });
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const { token } = await getGraphToken();
+
+    let resolved;
+    if (url) {
+      resolved = await sp.resolveShareUrl(token, url);
+    } else if (folderId) {
+      const f = await sp.getFolderDetails(token, meeting.board.sharepointDriveId, folderId);
+      resolved = { folderId: f.id, webUrl: f.webUrl };
+    } else {
+      return res.status(400).json({ error: 'Provide a folder url or folderId' });
+    }
+
+    const updated = await prisma.meeting.update({
+      where: { id: meeting.id },
+      data: {
+        sharepointFolderId: resolved.folderId,
+        sharepointWebUrl: resolved.webUrl,
+      },
+    });
+
+    res.json({ meetingId: updated.id, folderId: updated.sharepointFolderId });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/**
+ * Resolve a pasted SharePoint folder URL without saving it, so the UI can show
+ * what was found and let the user confirm before committing.
+ */
+router.post('/resolve', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url) return res.status(400).json({ error: 'url is required' });
+    const { token } = await getGraphToken();
+    res.json(await sp.resolveShareUrl(token, url));
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
 /** Resolve a site by "host:/sites/Name" or by site id. */
 router.get('/site', async (req, res) => {
   try {
@@ -222,22 +367,33 @@ router.get('/folders', async (req, res) => {
 /** Save the chosen destination against a board, after checking it is reachable. */
 router.post('/destination', async (req, res) => {
   try {
-    const { boardId, siteId, driveId, folderId } = req.body || {};
-    if (!driveId || !folderId) {
-      return res.status(400).json({ error: 'driveId and folderId are required' });
+    const { boardId, siteId, driveId, folderId, url } = req.body || {};
+    if (!url && (!driveId || !folderId)) {
+      return res.status(400).json({ error: 'Provide a folder url, or driveId and folderId' });
     }
 
     const board = await resolveBoard(boardId);
     if (!board) return res.status(404).json({ error: 'No board found' });
 
     const { token } = await getGraphToken();
-    const folder = await sp.getFolderDetails(token, driveId, folderId);
+
+    // Pasting the folder's address is the quickest route; the picker is the
+    // fallback for anyone who would rather browse.
+    let resolvedDriveId = driveId;
+    let folder;
+    if (url) {
+      const hit = await sp.resolveShareUrl(token, url);
+      resolvedDriveId = hit.driveId;
+      folder = { id: hit.folderId, name: hit.name, webUrl: hit.webUrl };
+    } else {
+      folder = await sp.getFolderDetails(token, driveId, folderId);
+    }
 
     const updated = await prisma.board.update({
       where: { id: board.id },
       data: {
         sharepointSiteId: siteId || getDefaultSiteId(),
-        sharepointDriveId: driveId,
+        sharepointDriveId: resolvedDriveId,
         sharepointFolderId: folder.id,
         sharepointFolderName: folder.name,
         sharepointWebUrl: folder.webUrl,

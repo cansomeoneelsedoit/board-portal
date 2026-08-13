@@ -6,6 +6,7 @@ import { useApi } from '../lib/useApi'
 import { endpoints } from '../lib/api'
 import { fmtBytes, fmtDateTime, humanise } from '../lib/format'
 import { Avatar, Badge, Card, CardHeader, DataState, Field, PageHeader } from '../components/ui'
+import BoardPackBrowser from '../components/BoardPackBrowser'
 
 export default function MeetingDetail() {
   const { id } = useParams()
@@ -72,6 +73,16 @@ export default function MeetingDetail() {
             </span>
           </Field>
         </div>
+      </Card>
+
+      {/* The board pack, straight from SharePoint. Folders open in place;
+          files open in SharePoint, which is where editing happens. */}
+      <Card>
+        <CardHeader
+          title="Board pack"
+          action={<span className="text-xs bp-muted">Read-only — open in SharePoint to edit</span>}
+        />
+        <BoardPackBrowser meetingId={meeting.id} />
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-3">

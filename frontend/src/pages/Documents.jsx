@@ -5,7 +5,8 @@ import {
 import api, { apiBase, endpoints } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { fmtBytes, fmtDate } from '../lib/format'
-import { Card, DataState, PageHeader } from '../components/ui'
+import { Card, CardHeader, DataState, PageHeader } from '../components/ui'
+import BoardPackBrowser from '../components/BoardPackBrowser'
 
 export default function Documents() {
   const { data, loading, error, refetch } = useApi(endpoints.documents())
@@ -195,6 +196,18 @@ export default function Documents() {
           ))}
         </div>
       </div>
+
+      {/* Linked: browse the real SharePoint structure. Folders open in place,
+          files open in SharePoint — which is where editing happens. */}
+      {linked && (
+        <Card>
+          <CardHeader
+            title="Library"
+            action={<span className="text-xs bp-muted">Read-only — open in SharePoint to edit</span>}
+          />
+          <BoardPackBrowser emptyLabel="This library is empty" />
+        </Card>
+      )}
 
       <Card>
         <DataState

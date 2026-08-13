@@ -171,6 +171,90 @@ async function assertFolderAccess(accessToken, driveId, folderId) {
   await getFolderDetails(accessToken, driveId, folderId);
 }
 
+/**
+ * Turn a SharePoint folder URL into a drive item.
+ *
+ * Lets an administrator paste the address straight out of their browser
+ * instead of drilling through a picker. Graph accepts a URL as a sharing
+ * token when it is base64url-encoded and prefixed with "u!".
+ */
+async function resolveShareUrl(accessToken, url) {
+  const encoded =
+    'u!' + Buffer.from(url.trim()).toString('base64').replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
+
+  const response = await graphFetch(
+    accessToken,
+    `/shares/${encoded}/driveItem?$select=id,name,webUrl,parentReference,folder`
+  );
+
+  if (!response.ok) {
+    const body = await readGraphErrorBody(response);
+    if (response.status === 401 || response.status === 403) {
+      // A 401 here means Graph would not tell us anything — we cannot know
+      // whether the folder exists, only that we were refused.
+      throw new MicrosoftGraphError(
+        'Refused by SharePoint. Either the connection is not authorised yet, or the connected ' +
+          'account cannot see that folder.'
+      );
+    }
+    if (isMissingItem(response, body)) {
+      throw new MicrosoftGraphError(
+        'Could not find that folder. Paste the address bar URL from the SharePoint folder itself.'
+      );
+    }
+    await throwGraphError(response, 'Could not resolve that SharePoint URL');
+  }
+
+  const item = await response.json();
+
+  if (!item.folder) {
+    throw new MicrosoftGraphError('That URL points at a file. Give the URL of the folder that holds the board packs.');
+  }
+
+  const driveId = item.parentReference?.driveId;
+  if (!driveId) {
+    throw new MicrosoftGraphError('Resolved the item but not its document library — try the folder picker instead.');
+  }
+
+  return { driveId, folderId: item.id, name: item.name, webUrl: item.webUrl };
+}
+
+/**
+ * Everything directly inside a folder — sub-folders and files together.
+ *
+ * This is what the read-only board-pack browser walks: one level at a time, so
+ * a deep SharePoint structure appears as members open it rather than being
+ * enumerated up front.
+ */
+async function listChildren(accessToken, driveId, folderId) {
+  const children = await listFolderChildren(accessToken, driveId, normalizeFolderId(folderId, driveId));
+
+  return children
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      isFolder: Boolean(item.folder),
+      childCount: item.folder?.childCount ?? null,
+      size: item.size ?? 0,
+      mimetype: item.file?.mimeType || null,
+      webUrl: item.webUrl,
+      modifiedAt: item.lastModifiedDateTime || null,
+      modifiedBy: item.lastModifiedBy?.user?.displayName || null,
+    }))
+    // Folders first, then files, each alphabetical — how people expect a
+    // document library to read.
+    .sort((a, b) =>
+      a.isFolder === b.isFolder ? a.name.localeCompare(b.name) : a.isFolder ? -1 : 1
+    );
+}
+
+/** A named sub-folder directly under a parent, or null. Never creates. */
+async function findChildFolder(accessToken, driveId, parentFolderId, name) {
+  const children = await listFolderChildren(accessToken, driveId, normalizeFolderId(parentFolderId, driveId));
+  const match = children.find((item) => item.folder && item.name === name);
+  return match ? { id: match.id, name: match.name, webUrl: match.webUrl } : null;
+}
+
 // ------------------------------------------------------------------ files
 
 const mapFile = (file, folderName) => ({
@@ -302,6 +386,9 @@ module.exports = {
   getSite,
   listSiteDrives,
   listFolders,
+  listChildren,
+  findChildFolder,
+  resolveShareUrl,
   getFolderDetails,
   assertFolderAccess,
   ensureFolderPath,
