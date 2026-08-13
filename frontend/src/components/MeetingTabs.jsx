@@ -9,6 +9,7 @@ import { useSession } from '../lib/useSession'
 import { fmtDate, humanise } from '../lib/format'
 import { Avatar, Badge, DataState } from './ui'
 import BoardPackBrowser from './BoardPackBrowser'
+import AttendanceRoll from './AttendanceRoll'
 
 /**
  * The meeting hub.
@@ -32,7 +33,7 @@ export default function MeetingTabs({ meeting }) {
   // declare, confirmation of the last minutes, then the papers, then what gets
   // resolved.
   const tabs = [
-    { id: 'attendance', label: 'Attendance',  icon: Users,          count: attendances.length },
+    { id: 'attendance', label: 'Attendance',  icon: Users,          count: (meeting.invitations || []).length },
     { id: 'coi',        label: 'Conflicts',   icon: AlertTriangle,  count: cois?.length },
     { id: 'minutes',    label: 'Minutes',     icon: ClipboardList },
     { id: 'pack',       label: 'Board pack',  icon: FolderOpen },
@@ -73,42 +74,7 @@ export default function MeetingTabs({ meeting }) {
 
       {tab === 'attendance' && (
         <div className="p-4">
-          {attendances.length === 0 ? (
-            <DataState empty emptyLabel="Attendance has not been recorded" />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="bp-table">
-                <thead>
-                  <tr><th>Member</th><th>Mode</th><th>Present</th></tr>
-                </thead>
-                <tbody>
-                  {attendances.map((a) => (
-                    <tr key={a.id}>
-                      <td>
-                        <span className="flex items-center gap-2.5">
-                          <Avatar name={a.user?.name} initials={a.user?.initials} size={28} />
-                          <span className="font-medium">{a.user?.name || 'Unknown'}</span>
-                        </span>
-                      </td>
-                      <td className="bp-muted">
-                        <span className="inline-flex items-center gap-1.5">
-                          {a.mode === 'VIDEO' ? <Video size={13} /> : <MapPin size={13} />}
-                          {a.mode === 'VIDEO' ? 'Video' : 'In person'}
-                        </span>
-                      </td>
-                      <td>
-                        {a.present ? (
-                          <span className="bp-badge bp-badge--success"><Check size={11} className="mr-1" />Present</span>
-                        ) : (
-                          <span className="bp-badge bp-badge--danger"><X size={11} className="mr-1" />Apology</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <AttendanceRoll meetingId={meeting.id} />
         </div>
       )}
 
