@@ -23,6 +23,12 @@ import AttendanceRoll from './AttendanceRoll'
  */
 export default function MeetingTabs({ meeting, received, declarations, onChanged }) {
   const [tab, setTab] = useState('agenda')
+  // Set when an agenda item is clicked: the pack tab opens inside that folder.
+  const [packTarget, setPackTarget] = useState(null)
+  const diveIntoFolder = (item) => {
+    setPackTarget({ id: item.sourceFolderId, name: `${item.number}. ${item.title}`, at: Date.now() })
+    setTab('pack')
+  }
 
   const attendances = meeting.attendances || []
   const motions = meeting.motions || []
@@ -89,6 +95,7 @@ export default function MeetingTabs({ meeting, received, declarations, onChanged
             received={received}
             declarations={declarations}
             onChanged={onChanged}
+            onOpenFolder={diveIntoFolder}
           />
         </div>
       )}
@@ -212,7 +219,7 @@ export default function MeetingTabs({ meeting, received, declarations, onChanged
  * The agenda, first among the tabs: numbered items, each paper stamped for
  * when it arrived, and any conflict pinned to the item warned right on it.
  */
-function AgendaPanel({ meeting, agenda, received, declarations, onChanged }) {
+function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpenFolder }) {
   const { capabilities } = useSession()
   const canEdit = capabilities?.manageMeetings
   const [busy, setBusy] = useState(null)
@@ -374,9 +381,20 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged }) {
               ) : (
                 <>
                   <p className="text-sm font-medium">
-                    {item.title}
+                    {item.sourceFolderId ? (
+                      <button
+                        onClick={() => onOpenFolder?.(item)}
+                        className="text-left hover:underline"
+                        style={{ color: 'var(--bp-primary)' }}
+                        title="Open this item's folder in the board pack"
+                      >
+                        {item.title}
+                      </button>
+                    ) : (
+                      item.title
+                    )}
                     {item.sourceFolderId && (
-                      <span className="bp-badge bp-badge--info ml-2" title="Built from the pack — re-sync after the folder changes">
+                      <span className="bp-badge bp-badge--info ml-2" title="Built from the pack — click the title to open its folder">
                         follows the pack
                       </span>
                     )}

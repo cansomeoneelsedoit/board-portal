@@ -21,7 +21,7 @@ const SOURCE_META = {
  * — uploading and removing need administrator rights, and SharePoint enforces
  * its own permissions on top.
  */
-export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This folder is empty' }) {
+export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This folder is empty', openFolder = null }) {
   const { capabilities } = useSession()
   const [trail, setTrail] = useState([])
   const [pack, setPack] = useState(null)
@@ -56,6 +56,15 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   }, [meetingId])
 
   useEffect(() => { load(null, true) }, [load])
+
+  // Jumping in from the agenda: open straight at that item's folder, with the
+  // pack root one step back.
+  useEffect(() => {
+    if (!openFolder?.id) return
+    load(openFolder.id, false).then(() => {
+      setTrail([{ id: '__ROOT__', name: 'Board pack' }, { id: openFolder.id, name: openFolder.name }])
+    })
+  }, [openFolder, load])
 
   const openFolder = async (item) => {
     await load(item.id, false)
