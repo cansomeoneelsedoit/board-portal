@@ -4,6 +4,8 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApi } from '../lib/useApi'
+import api from '../lib/api'
+import { useSession } from '../lib/useSession'
 import { fmtDate, humanise } from '../lib/format'
 import { Avatar, Badge, DataState } from './ui'
 import BoardPackBrowser from './BoardPackBrowser'
@@ -64,9 +66,7 @@ export default function MeetingTabs({ meeting }) {
 
       {tab === 'pack' && (
         <div>
-          <div className="px-4 py-2 text-xs bp-muted" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
-            Straight from SharePoint — read-only. Open a file to view or edit it there.
-          </div>
+          <PackSourcePicker meeting={meeting} />
           <BoardPackBrowser meetingId={meeting.id} />
         </div>
       )}
@@ -190,6 +190,70 @@ export default function MeetingTabs({ meeting }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Where this meeting's papers come from.
+ *
+ * Only shown to administrators — a member has no reason to care which store is
+ * behind the pack, only that they can read it.
+ */
+function PackSourcePicker({ meeting }) {
+  const { capabilities } = useSession()
+  const { data, refetch } = useApi(`/pack/${meeting.id}`)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  if (!capabilities?.manageMeetings) return null
+
+  const options = [
+    { id: 'INHERIT',    label: 'Board default' },
+    { id: 'SHAREPOINT', label: 'SharePoint' },
+    { id: 'VAULT',      label: 'File vault', disabled: data && !data.vaultAvailable },
+    { id: 'LOCAL',      label: 'Upload here' },
+  ]
+
+  const change = async (source) => {
+    setSaving(true)
+    setError(null)
+    try {
+      await api.put(`/pack/${meeting.id}/source`, { source })
+      await refetch()
+      // The browser below reads the same endpoint, so nudge a full reload.
+      window.dispatchEvent(new Event('board-pack-source-changed'))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const current = data?.packSource || 'INHERIT'
+
+  return (
+    <div
+      className="px-4 py-2.5 flex flex-wrap items-center gap-2"
+      style={{ borderBottom: '1px solid var(--bp-card-border)' }}
+    >
+      <span className="text-xs bp-muted">Papers from</span>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => change(o.id)}
+          disabled={saving || o.disabled}
+          title={o.disabled ? 'Provided by the host platform — not available standalone' : undefined}
+          className={current === o.id ? 'bp-btn bp-btn-primary' : 'bp-btn bp-btn-secondary'}
+          style={o.disabled ? { opacity: 0.45 } : undefined}
+        >
+          {o.label}
+        </button>
+      ))}
+      {data?.packSource === 'INHERIT' && data?.effectiveSource && (
+        <span className="text-xs bp-subtle">→ {data.effectiveSource}</span>
+      )}
+      {error && <span className="text-xs" style={{ color: 'var(--bp-danger-fg)' }}>{error}</span>}
     </div>
   )
 }

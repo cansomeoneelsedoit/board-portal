@@ -37,6 +37,9 @@ model Board {
   orgKey      String?
   createdAt   DateTime @default(now())
 
+  // Default source for this board's packs: SHAREPOINT | VAULT | LOCAL
+  packSource           String  @default("SHAREPOINT")
+
   // SharePoint destination for this board's packs. Files live there, not here.
   sharepointSiteId     String?
   sharepointDriveId    String?
@@ -68,10 +71,20 @@ model Meeting {
   videoUrl    String?
   createdAt   DateTime @default(now())
 
+  // Where this meeting's papers live. INHERIT follows the board's default,
+  // which keeps the common case (a whole board on SharePoint) zero-effort while
+  // still letting one meeting differ.
+  //   INHERIT | SHAREPOINT | VAULT | LOCAL
+  packSource String @default("INHERIT")
+
   // Board pack folder in SharePoint. Optional: when unset the pack is found by
   // looking for a sub-folder named after the meeting under the board's root.
   sharepointFolderId String?
   sharepointWebUrl   String?
+
+  // Folder in the host platform's file vault, when packSource is VAULT.
+  vaultFolderId String?
+  vaultPath     String?
   
   board       Board        @relation(fields: [boardId], references: [id])
   agendaItems AgendaItem[]
