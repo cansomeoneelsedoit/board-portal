@@ -1,4 +1,30 @@
 services:
+  # The whole portal on http://localhost:3013 — API + built SPA in one
+  # container, restarting on its own. This is what Mason-View's "Full Portal"
+  # page embeds, so it must outlive any terminal session.
+  app:
+    build: .
+    container_name: board-portal-app
+    restart: unless-stopped
+    ports:
+      - "3013:3013"
+    # Microsoft credentials and site come from backend/.env (not committed);
+    # the environment block below then overrides the values that differ
+    # inside the container network.
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgresql://boardportal:boardportal@db:5432/board_portal_dev?schema=public
+      PORT: "3013"
+      SERVE_SPA: "1"
+      CORS_ORIGIN: "*"
+      UPLOAD_DIR: /app/backend/uploads
+    volumes:
+      - board-portal-uploads:/app/backend/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:16-alpine
     container_name: board-portal-db
@@ -19,3 +45,4 @@ services:
 
 volumes:
   board-portal-pgdata:
+  board-portal-uploads:

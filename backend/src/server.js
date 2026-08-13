@@ -85,10 +85,13 @@ const health = async (req, res) => {
 app.get('/health', health);
 app.get(`${API_PREFIX}/health`, health);
 
-// Root
-app.get('/', (req, res) =>
-  res.json({ message: 'Board Portal API', status: 'running', apiPrefix: API_PREFIX })
-);
+// Root — but when this service also serves the SPA, the SPA owns "/" and the
+// JSON identity moves aside so an embedded portal doesn't open onto raw JSON.
+if (process.env.SERVE_SPA !== '1') {
+  app.get('/', (req, res) =>
+    res.json({ message: 'Board Portal API', status: 'running', apiPrefix: API_PREFIX })
+  );
+}
 
 // Optionally serve the built SPA from this same service (single-service deploys
 // and the embedded-module case). Off by default: Railway runs a separate
