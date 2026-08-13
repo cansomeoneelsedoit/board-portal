@@ -79,6 +79,7 @@ model Board {
 
   meetings    Meeting[]
   members     BoardMember[]
+  interestDisclosures InterestDisclosure[]
 
   @@index([orgKey])
 }
@@ -115,6 +116,10 @@ model Meeting {
   // Folder in the host platform's file vault, when packSource is VAULT.
   vaultFolderId String?
   vaultPath     String?
+
+  /// Whether members may assign their vote to a proxy for this meeting.
+  /// Asked when the meeting is scheduled; proxies register on the meeting page.
+  proxiesAllowed Boolean @default(true)
 
   // Per-meeting quorum overrides; null inherits the board's rule.
   quorumMinimum        Int?
@@ -244,8 +249,14 @@ model Vote {
 model MemberInterest {
   id          String   @id @default(uuid())
   userId      String
-  /// The body the register belongs to.
+  /// Legacy single-body column, superseded by disclosedToAll + disclosures.
   boardId     String?
+
+  /// A standing disclosure to every board and committee. When false, the
+  /// interest is disclosed only to the bodies listed in `disclosures` —
+  /// because not every interest is relevant to every committee.
+  disclosedToAll Boolean @default(true)
+  disclosures    InterestDisclosure[]
 
   /// The interest itself, e.g. "Director, Freemasons Property Pty Ltd".
   interest    String
@@ -273,6 +284,21 @@ model MemberInterest {
   @@index([userId])
   @@index([boardId])
   @@index([status])
+}
+
+/// Which specific body an interest is disclosed to, when it is not a standing
+/// disclosure to all of them.
+model InterestDisclosure {
+  id         String   @id @default(uuid())
+  interestId String
+  boardId    String
+  createdAt  DateTime @default(now())
+
+  interest   MemberInterest @relation(fields: [interestId], references: [id], onDelete: Cascade)
+  board      Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([interestId, boardId])
+  @@index([boardId])
 }
 
 /// A declared interest, and what the meeting resolved about it.

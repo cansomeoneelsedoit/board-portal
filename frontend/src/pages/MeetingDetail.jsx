@@ -213,8 +213,8 @@ function EditMeeting({ meeting, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <form onSubmit={submit} className="bp-card w-full max-w-lg" style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.25)' }}>
+    <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto p-4 flex items-start justify-center">
+      <form onSubmit={submit} className="bp-card w-full max-w-lg my-4 max-h-[calc(100vh-2rem)] overflow-y-auto" style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.25)' }}>
         <div className="p-5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
           <h2 className="text-lg font-semibold">Edit Meeting</h2>
           <button type="button" onClick={onClose} className="bp-subtle hover:text-[var(--bp-fg)]"><X size={18} /></button>

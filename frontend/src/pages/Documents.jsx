@@ -284,6 +284,25 @@ export default function Documents() {
                             <Download size={15} />
                           </a>
                         )}
+                        {/* Locally uploaded files are served from /uploads.
+                            Seeded sample rows have no real file behind them
+                            and say so instead of offering a dead link. */}
+                        {d.source === 'LOCAL' && d.path && !d.path.startsWith('demo/') && (
+                          <a
+                            href={`/uploads/${d.path}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bp-subtle hover:text-[var(--bp-fg)] inline-flex p-1.5"
+                            title="Open"
+                          >
+                            <Download size={15} />
+                          </a>
+                        )}
+                        {d.source === 'LOCAL' && d.path && d.path.startsWith('demo/') && (
+                          <span className="text-xs bp-subtle px-1.5" title="Seeded sample — no file behind it">
+                            sample
+                          </span>
+                        )}
                         {linked && (
                           <button
                             onClick={() => remove(d)}

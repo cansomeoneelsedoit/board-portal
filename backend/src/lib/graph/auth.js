@@ -16,6 +16,14 @@ const tokenCache = new Map();
 async function getAppAccessToken() {
   const { clientId, clientSecret, tenantId } = getMicrosoftAppCredentials();
 
+  if (!clientSecret) {
+    const { MicrosoftGraphConfigError } = require('./errors');
+    throw new MicrosoftGraphConfigError(
+      'No signed-in Microsoft account and no client secret for app-only access. ' +
+        'Sign in with Microsoft on the Integrations page.'
+    );
+  }
+
   const cached = tokenCache.get(tenantId);
   if (cached && cached.expiresAt > Date.now() + 60_000) {
     return cached.token;

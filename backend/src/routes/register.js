@@ -21,15 +21,25 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const where = {};
-    if (req.query.boardId) where.boardId = req.query.boardId;
     if (req.query.userId) where.userId = req.query.userId;
+    // ?boardId= narrows to interests relevant to one body: standing
+    // all-bodies disclosures plus ones scoped to that body specifically.
+    if (req.query.boardId) {
+      where.OR = [
+        { disclosedToAll: true },
+        { disclosures: { some: { boardId: req.query.boardId } } },
+      ];
+    }
     // Default to standing interests; ?status=ALL includes ones that have ended.
     const status = (req.query.status || 'ACTIVE').toUpperCase();
     if (status !== 'ALL') where.status = status;
 
     const interests = await prisma.memberInterest.findMany({
       where,
-      include: { user: true },
+      include: {
+        user: true,
+        disclosures: { include: { board: { select: { id: true, name: true, shortName: true, kind: true } } } },
+      },
       orderBy: [{ userId: 'asc' }, { createdAt: 'asc' }],
     });
 
@@ -51,6 +61,8 @@ router.get('/', async (req, res) => {
         id: i.id,
         interest: i.interest,
         category: i.category,
+        disclosedToAll: i.disclosedToAll,
+        boards: (i.disclosures || []).map((d) => d.board).filter(Boolean),
         notified: i.notified,
         notifiedAt: i.notifiedAt,
         boardSteps: i.boardSteps,
@@ -80,8 +92,18 @@ router.get('/', async (req, res) => {
  */
 router.post('/', requireAdmin, async (req, res) => {
   try {
-    const { userId, boardId, interests, interest, category, notified, boardSteps, memberActions } = req.body || {};
+    const {
+      userId, boardId, interests, interest, category, notified, boardSteps, memberActions,
+      disclosedToAll, boardIds,
+    } = req.body || {};
     if (!userId) return res.status(400).json({ error: 'Member is required' });
+
+    // Scope: standing (all bodies) unless specific bodies were chosen.
+    const scopeAll = disclosedToAll !== false;
+    const scopeBoards = Array.isArray(boardIds) ? boardIds.filter(Boolean) : [];
+    if (!scopeAll && scopeBoards.length === 0) {
+      return res.status(400).json({ error: 'Choose at least one board or committee, or disclose to all' });
+    }
 
     // "Director, X\nMember, Y" or an array — both mean several interests.
     const list = Array.isArray(interests)
@@ -93,20 +115,28 @@ router.post('/', requireAdmin, async (req, res) => {
     const cat = category && COI_TYPE_IDS.includes(category) ? category : 'DUTY_TO_DUTY';
     const isNotified = Boolean(notified);
 
-    const created = await prisma.memberInterest.createMany({
-      data: list.map((text) => ({
-        userId,
-        boardId: boardId || null,
-        interest: typeof text === 'string' ? text : text.interest,
-        category: cat,
-        notified: isNotified,
-        notifiedAt: isNotified ? new Date() : null,
-        boardSteps: boardSteps || null,
-        memberActions: memberActions || null,
-      })),
-    });
+    let added = 0;
+    for (const text of list) {
+      const row = await prisma.memberInterest.create({
+        data: {
+          userId,
+          boardId: boardId || null,
+          interest: typeof text === 'string' ? text : text.interest,
+          category: cat,
+          notified: isNotified,
+          notifiedAt: isNotified ? new Date() : null,
+          boardSteps: boardSteps || null,
+          memberActions: memberActions || null,
+          disclosedToAll: scopeAll,
+          ...(scopeAll
+            ? {}
+            : { disclosures: { create: scopeBoards.map((b) => ({ boardId: b })) } }),
+        },
+      });
+      added += row ? 1 : 0;
+    }
 
-    res.status(201).json({ added: created.count });
+    res.status(201).json({ added });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -114,10 +144,33 @@ router.post('/', requireAdmin, async (req, res) => {
 
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
-    const { interest, category, notified, boardSteps, memberActions, status } = req.body || {};
+    const {
+      interest, category, notified, boardSteps, memberActions, status,
+      disclosedToAll, boardIds,
+    } = req.body || {};
 
     const current = await prisma.memberInterest.findUnique({ where: { id: req.params.id } });
     if (!current) return res.status(404).json({ error: 'Not found' });
+
+    // Scope change: replace the disclosure set wholesale — it is small and a
+    // partial diff would invite drift.
+    if (disclosedToAll !== undefined || boardIds !== undefined) {
+      const scopeAll = disclosedToAll !== false;
+      const scopeBoards = Array.isArray(boardIds) ? boardIds.filter(Boolean) : [];
+      if (!scopeAll && scopeBoards.length === 0) {
+        return res.status(400).json({ error: 'Choose at least one board or committee, or disclose to all' });
+      }
+      await prisma.interestDisclosure.deleteMany({ where: { interestId: current.id } });
+      if (!scopeAll) {
+        await prisma.interestDisclosure.createMany({
+          data: scopeBoards.map((b) => ({ interestId: current.id, boardId: b })),
+        });
+      }
+      await prisma.memberInterest.update({
+        where: { id: current.id },
+        data: { disclosedToAll: scopeAll },
+      });
+    }
 
     const updated = await prisma.memberInterest.update({
       where: { id: req.params.id },

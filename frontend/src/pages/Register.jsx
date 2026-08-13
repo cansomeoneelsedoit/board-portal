@@ -98,11 +98,25 @@ function MemberBlock({ member, canManage, onChange }) {
   const [busy, setBusy] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft] = useState('')
+  const [draftScopeAll, setDraftScopeAll] = useState(true)
+  const [draftBoards, setDraftBoards] = useState([])
+  const { data: bodies } = useApi('/boards')
+
+  const startEdit = (i) => {
+    setEditingId(i.id)
+    setDraft(i.interest)
+    setDraftScopeAll(Boolean(i.disclosedToAll))
+    setDraftBoards((i.boards || []).map((b) => b.id))
+  }
 
   const saveText = async (interest) => {
     setBusy(interest.id)
     try {
-      await api.put(`/register/${interest.id}`, { interest: draft })
+      await api.put(`/register/${interest.id}`, {
+        interest: draft,
+        disclosedToAll: draftScopeAll,
+        boardIds: draftScopeAll ? [] : draftBoards,
+      })
       setEditingId(null)
       await onChange()
     } finally {
@@ -181,18 +195,50 @@ function MemberBlock({ member, canManage, onChange }) {
               <tr key={i.id} style={i.status === 'ENDED' ? { opacity: 0.55 } : undefined}>
                 <td>
                   {editingId === i.id ? (
-                    <span className="flex items-center gap-2">
-                      <input value={draft} onChange={(e) => setDraft(e.target.value)}
-                        className="bp-input text-sm py-1 w-full min-w-[16rem]" autoFocus />
-                      <button onClick={() => saveText(i)} disabled={busy === i.id}
-                        className="bp-btn bp-btn-primary" title="Save"><Check size={13} /></button>
-                      <button onClick={() => setEditingId(null)} className="bp-subtle p-1" title="Cancel">
-                        <X size={13} />
-                      </button>
-                    </span>
+                    <div className="space-y-2 min-w-[18rem]">
+                      <span className="flex items-center gap-2">
+                        <input value={draft} onChange={(e) => setDraft(e.target.value)}
+                          className="bp-input text-sm py-1 w-full min-w-[16rem]" autoFocus />
+                        <button onClick={() => saveText(i)} disabled={busy === i.id}
+                          className="bp-btn bp-btn-primary" title="Save"><Check size={13} /></button>
+                        <button onClick={() => setEditingId(null)} className="bp-subtle p-1" title="Cancel">
+                          <X size={13} />
+                        </button>
+                      </span>
+                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <label className="flex items-center gap-1.5">
+                          <input type="radio" checked={draftScopeAll} onChange={() => setDraftScopeAll(true)} />
+                          All bodies
+                        </label>
+                        <label className="flex items-center gap-1.5">
+                          <input type="radio" checked={!draftScopeAll} onChange={() => setDraftScopeAll(false)} />
+                          Specific:
+                        </label>
+                        {!draftScopeAll && (bodies || []).map((b) => (
+                          <label key={b.id} className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={draftBoards.includes(b.id)}
+                              onChange={() =>
+                                setDraftBoards((s2) => (s2.includes(b.id) ? s2.filter((x) => x !== b.id) : [...s2, b.id]))}
+                            />
+                            {b.shortName || b.name}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   ) : (
                     <>
                       <p className="font-medium">{i.interest}</p>
+                      <p className="mt-0.5 flex flex-wrap gap-1">
+                        {i.disclosedToAll ? (
+                          <span className="bp-badge bp-badge--info">All boards & committees</span>
+                        ) : (
+                          (i.boards || []).map((b) => (
+                            <span key={b.id} className="bp-badge bp-badge--neutral">{b.shortName || b.name}</span>
+                          ))
+                        )}
+                      </p>
                       {i.status === 'ENDED' && (
                         <p className="text-xs bp-subtle">Ended {fmtDate(i.endedAt)}</p>
                       )}
@@ -216,7 +262,7 @@ function MemberBlock({ member, canManage, onChange }) {
                   <td>
                     <div className="flex items-center gap-1 justify-end">
                       <button
-                        onClick={() => { setEditingId(i.id); setDraft(i.interest) }}
+                        onClick={() => startEdit(i)}
                         disabled={busy === i.id}
                         className="bp-subtle hover:text-[var(--bp-fg)] p-1.5"
                         title="Edit the wording"
@@ -273,6 +319,7 @@ function MemberBlock({ member, canManage, onChange }) {
 
 function AddDisclosure({ onDone }) {
   const [userId, setUserId] = useState(null)
+  const { data: bodies } = useApi('/boards')
   const [form, setForm] = useState({
     interest: '',
     category: 'DUTY_TO_DUTY',
@@ -280,6 +327,12 @@ function AddDisclosure({ onDone }) {
     boardSteps: DEFAULT_BOARD_STEPS,
     memberActions: DEFAULT_MEMBER_ACTIONS,
   })
+  // Scope: a standing disclosure to every body, or only the bodies it is
+  // actually relevant to — not every interest matters to every committee.
+  const [scopeAll, setScopeAll] = useState(true)
+  const [boardIds, setBoardIds] = useState([])
+  const toggleBoard = (id) =>
+    setBoardIds((s2) => (s2.includes(id) ? s2.filter((b) => b !== id) : [...s2, id]))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -289,7 +342,7 @@ function AddDisclosure({ onDone }) {
     setSaving(true)
     setError(null)
     try {
-      await api.post('/register', { userId, ...form })
+      await api.post('/register', { userId, ...form, disclosedToAll: scopeAll, boardIds: scopeAll ? [] : boardIds })
       await onDone()
     } catch (err) {
       setError(err.message)
@@ -345,6 +398,31 @@ function AddDisclosure({ onDone }) {
                 <span className="text-sm">Board has been notified</span>
               </label>
             </div>
+
+            <fieldset className="bp-card p-3 space-y-2">
+              <legend className="text-sm font-medium px-1">Disclosed to</legend>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" checked={scopeAll} onChange={() => setScopeAll(true)} />
+                All boards and committees — standing disclosure
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" checked={!scopeAll} onChange={() => setScopeAll(false)} />
+                Only specific bodies
+              </label>
+              {!scopeAll && (
+                <div className="pl-6 space-y-1">
+                  {(bodies || []).map((b) => (
+                    <label key={b.id} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={boardIds.includes(b.id)} onChange={() => toggleBoard(b.id)} />
+                      {b.name}
+                    </label>
+                  ))}
+                  {(bodies || []).length === 0 && (
+                    <p className="text-xs bp-muted">No boards or committees yet — create them in Board Setup.</p>
+                  )}
+                </div>
+              )}
+            </fieldset>
 
             <label className="block">
               <span className="text-sm font-medium">Steps taken by the board</span>

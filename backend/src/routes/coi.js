@@ -18,6 +18,73 @@ const router = express.Router();
 /** Vocabulary for the forms, so the UI never hard-codes the options. */
 router.get('/options', (req, res) => res.json({ types: COI_TYPES, effects: COI_EFFECTS }));
 
+/**
+ * Conflict alerts for one meeting.
+ *
+ * The chair needs to know, before an item is taken: which invited members hold
+ * standing register interests relevant to this body, and which declarations
+ * made at this meeting are still unresolved. This powers the alert on the
+ * meeting's Conflicts tab — the register page is the archive; the meeting is
+ * where the information has to surface.
+ */
+router.get('/alerts/:meetingId', async (req, res) => {
+  try {
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: req.params.meetingId },
+      include: { invitations: { include: { user: true } } },
+    });
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const invitedIds = meeting.invitations.map((i) => i.userId);
+
+    const interests = invitedIds.length
+      ? await prisma.memberInterest.findMany({
+          where: {
+            userId: { in: invitedIds },
+            status: 'ACTIVE',
+            OR: [
+              { disclosedToAll: true },
+              ...(meeting.boardId ? [{ disclosures: { some: { boardId: meeting.boardId } } }] : []),
+            ],
+          },
+          include: { user: true },
+          orderBy: [{ userId: 'asc' }, { createdAt: 'asc' }],
+        })
+      : [];
+
+    const byMember = new Map();
+    for (const i of interests) {
+      if (!byMember.has(i.userId)) {
+        byMember.set(i.userId, {
+          userId: i.userId,
+          member: i.user?.name || 'Unknown',
+          initials: i.user?.initials || null,
+          interests: [],
+        });
+      }
+      byMember.get(i.userId).interests.push({
+        id: i.id,
+        interest: i.interest,
+        category: i.category,
+        standing: i.disclosedToAll,
+      });
+    }
+
+    const unresolved = await prisma.cOI.count({
+      where: { meetingId: meeting.id, effect: 'PENDING' },
+    });
+
+    res.json({
+      meetingId: meeting.id,
+      unresolvedDeclarations: unresolved,
+      standing: [...byMember.values()],
+      totalStandingInterests: interests.length,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const where = {};

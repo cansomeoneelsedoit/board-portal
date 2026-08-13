@@ -8,13 +8,19 @@ const { MicrosoftGraphConfigError } = require('./errors');
  */
 function getMicrosoftAppCredentials() {
   const clientId = process.env.MICROSOFT_CLIENT_ID?.trim();
-  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET?.trim();
+  // Optional: only the app-only (client credentials) path needs a secret.
+  // "Sign in with Microsoft" (device code) is a public-client flow and works
+  // with just tenant + client id.
+  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET?.trim() || null;
+  // A tenant id, a domain ("masonicservices.com.au"), or "organizations" when
+  // the app registration is multi-tenant and each board's people sign in with
+  // their own tenant's accounts.
   const tenantId = process.env.MICROSOFT_TENANT_ID?.trim();
 
-  if (!clientId || !clientSecret || !tenantId) {
+  if (!clientId || !tenantId) {
     throw new MicrosoftGraphConfigError(
-      'SharePoint is not configured. Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID and ' +
-        'MICROSOFT_CLIENT_SECRET on the backend service.'
+      'SharePoint is not configured. Set MICROSOFT_TENANT_ID and MICROSOFT_CLIENT_ID on the ' +
+        'backend service (MICROSOFT_CLIENT_SECRET is only needed for app-only access).'
     );
   }
 
@@ -24,9 +30,7 @@ function getMicrosoftAppCredentials() {
 /** Cheap check for status endpoints — never throws. */
 function isConfigured() {
   return Boolean(
-    process.env.MICROSOFT_CLIENT_ID?.trim() &&
-      process.env.MICROSOFT_CLIENT_SECRET?.trim() &&
-      process.env.MICROSOFT_TENANT_ID?.trim()
+    process.env.MICROSOFT_CLIENT_ID?.trim() && process.env.MICROSOFT_TENANT_ID?.trim()
   );
 }
 

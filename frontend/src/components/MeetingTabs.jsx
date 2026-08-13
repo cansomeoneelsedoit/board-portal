@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   FolderOpen, Users, AlertTriangle, Vote as VoteIcon, ClipboardList, Check, X, Video, MapPin, Scale,
+  UserCheck, ArrowRight, Trash2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApi } from '../lib/useApi'
@@ -37,6 +38,7 @@ export default function MeetingTabs({ meeting }) {
     // Quorum sits straight after the roll: mark attendance, then see at once
     // whether the meeting can transact business.
     { id: 'quorum',     label: 'Quorum',      icon: Scale },
+    { id: 'proxies',    label: 'Proxies',     icon: UserCheck },
     { id: 'coi',        label: 'Conflicts',   icon: AlertTriangle,  count: cois?.length },
     { id: 'minutes',    label: 'Minutes',     icon: ClipboardList },
     { id: 'pack',       label: 'Board pack',  icon: FolderOpen },
@@ -87,8 +89,15 @@ export default function MeetingTabs({ meeting }) {
         </div>
       )}
 
+      {tab === 'proxies' && (
+        <div className="p-4">
+          <ProxiesPanel meeting={meeting} />
+        </div>
+      )}
+
       {tab === 'coi' && (
         <div className="p-4">
+          <ConflictAlerts meetingId={meeting.id} />
           <DataState
             loading={coiLoading}
             error={coiError}
@@ -163,6 +172,160 @@ export default function MeetingTabs({ meeting }) {
               <MinutesBody content={minutes.content} />
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Standing register interests relevant to this meeting's attendees — surfaced
+ * where the chair needs them, before an item is taken. The register page is
+ * the archive; the meeting is where it must show up.
+ */
+function ConflictAlerts({ meetingId }) {
+  const { data } = useApi(`/coi/alerts/${meetingId}`)
+  if (!data || (data.totalStandingInterests === 0 && data.unresolvedDeclarations === 0)) return null
+
+  return (
+    <div className="mb-4 space-y-2">
+      {data.unresolvedDeclarations > 0 && (
+        <div className="p-3 rounded-lg text-sm flex items-start gap-2"
+          style={{ background: 'var(--bp-danger-bg)', color: 'var(--bp-danger-fg)' }}>
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span>
+            {data.unresolvedDeclarations} declaration{data.unresolvedDeclarations === 1 ? '' : 's'} at this
+            meeting still need{data.unresolvedDeclarations === 1 ? 's' : ''} a resolution from the board.
+          </span>
+        </div>
+      )}
+      {data.standing.length > 0 && (
+        <div className="p-3 rounded-lg text-sm"
+          style={{ background: 'var(--bp-warning-bg)', color: 'var(--bp-warning-fg)' }}>
+          <p className="flex items-center gap-2 font-medium">
+            <AlertTriangle size={15} /> Standing interests on the register for attendees
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {data.standing.map((m) => (
+              <li key={m.userId}>
+                <span className="font-medium">{m.member}</span>
+                {': '}
+                {m.interests.slice(0, 3).map((i) => i.interest).join('; ')}
+                {m.interests.length > 3 ? ` — and ${m.interests.length - 3} more` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Proxies for this sitting: who assigned their vote, and to whom. Registering
+ * needs administrator rights, both people must be on the invitation list, and
+ * the meeting must have been scheduled with proxy voting allowed.
+ */
+function ProxiesPanel({ meeting }) {
+  const { data: proxies, loading, error, refetch } = useApi(`/proxies?meetingId=${encodeURIComponent(meeting.id)}`)
+  const { capabilities } = useSession()
+  const [fromId, setFromId] = useState('')
+  const [toId, setToId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState(null)
+
+  const invitations = meeting.invitations || []
+  const canManage = capabilities?.manageMeetings
+
+  if (meeting.proxiesAllowed === false) {
+    return (
+      <DataState
+        empty
+        emptyLabel="Proxy voting is not allowed for this meeting — an administrator can change that in Edit Meeting"
+      />
+    )
+  }
+
+  const register = async () => {
+    setBusy(true)
+    setNotice(null)
+    try {
+      await api.post('/proxies', { meetingId: meeting.id, fromUserId: fromId, toUserId: toId })
+      setFromId(''); setToId('')
+      await refetch()
+    } catch (e) {
+      setNotice(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (p) => {
+    setBusy(true)
+    try {
+      await api.delete(`/proxies/${p.id}`)
+      await refetch()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {canManage && (
+        <div className="bp-card p-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="text-xs font-medium bp-muted">Member assigning their vote</span>
+            <select value={fromId} onChange={(e) => setFromId(e.target.value)} className="bp-input w-52 mt-1">
+              <option value="">Choose…</option>
+              {invitations.map((i) => (
+                <option key={i.userId} value={i.userId}>{i.user?.name}</option>
+              ))}
+            </select>
+          </label>
+          <ArrowRight size={16} className="bp-subtle mb-2.5" />
+          <label className="block">
+            <span className="text-xs font-medium bp-muted">Holds the proxy</span>
+            <select value={toId} onChange={(e) => setToId(e.target.value)} className="bp-input w-52 mt-1">
+              <option value="">Choose…</option>
+              {invitations.filter((i) => i.userId !== fromId).map((i) => (
+                <option key={i.userId} value={i.userId}>{i.user?.name}</option>
+              ))}
+            </select>
+          </label>
+          <button onClick={register} disabled={busy || !fromId || !toId} className="bp-btn bp-btn-primary">
+            Register proxy
+          </button>
+          {notice && <span className="text-sm w-full" style={{ color: 'var(--bp-danger-fg)' }}>{notice}</span>}
+        </div>
+      )}
+
+      <DataState
+        loading={loading}
+        error={error}
+        empty={!loading && !error && (proxies || []).length === 0}
+        emptyLabel="No proxies registered for this meeting"
+        onRetry={refetch}
+      />
+
+      {(proxies || []).length > 0 && (
+        <div className="bp-divide">
+          {proxies.map((p) => (
+            <div key={p.id} className="py-2.5 flex items-center gap-3">
+              <Avatar name={p.fromUser?.name} initials={p.fromUser?.initials} size={28} />
+              <span className="text-sm font-medium">{p.fromUser?.name}</span>
+              <ArrowRight size={14} className="bp-subtle" />
+              <Avatar name={p.toUser?.name} initials={p.toUser?.initials} size={28} />
+              <span className="text-sm font-medium flex-1">{p.toUser?.name}</span>
+              <span className="text-xs bp-muted">Lodged {fmtDate(p.lodgedAt)}</span>
+              {canManage && (
+                <button onClick={() => remove(p)} disabled={busy}
+                  className="bp-subtle hover:text-[var(--bp-danger-fg)] p-1.5" title="Remove">
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

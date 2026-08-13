@@ -220,6 +220,7 @@ function NewMeetingModal({ onClose, onCreated }) {
     requireTreasurer: true,
     secretaryExOfficio: true,
   })
+  const [proxiesAllowed, setProxiesAllowed] = useState(true)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -245,6 +246,7 @@ function NewMeetingModal({ onClose, onCreated }) {
           quorum.requireTreasurer ? 'TREASURER' : null,
         ].filter(Boolean).join(','),
         quorumExOfficioRoles: quorum.secretaryExOfficio ? 'SECRETARY' : '',
+        proxiesAllowed,
       })
       onCreated()
     } catch (e2) {
@@ -254,8 +256,8 @@ function NewMeetingModal({ onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <form onSubmit={submit} className="bp-card w-full max-w-lg" style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.25)' }}>
+    <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto p-4 flex items-start justify-center">
+      <form onSubmit={submit} className="bp-card w-full max-w-lg my-4 max-h-[calc(100vh-2rem)] overflow-y-auto" style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.25)' }}>
         <div className="p-5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
           <h2 className="text-lg font-semibold">Schedule New Meeting</h2>
           <button type="button" onClick={onClose} className="bp-subtle hover:text-[var(--bp-fg)]">
@@ -328,6 +330,12 @@ function NewMeetingModal({ onClose, onCreated }) {
               Secretary attends ex officio (not counted)
             </label>
           </fieldset>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={proxiesAllowed}
+              onChange={(e) => setProxiesAllowed(e.target.checked)} />
+            Proxy voting allowed — members may assign their vote for this meeting
+          </label>
 
           {err && <p className="text-sm" style={{ color: 'var(--bp-danger-fg)' }}>{err}</p>}
         </div>
