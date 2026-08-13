@@ -29,23 +29,41 @@ const DEFAULT_MEMBER_ACTIONS =
   'will advise the Board and the General Manager, and it is entered into the register of interests.'
 
 export default function Register() {
-  const { data, loading, error, refetch } = useApi('/register')
+  // One master profile per member; each board sees what was disclosed TO IT —
+  // standing all-bodies disclosures plus its own. The filter is that view.
+  const [boardId, setBoardId] = useState('')
+  const { data: bodies } = useApi('/boards')
+  const { data, loading, error, refetch } = useApi(boardId ? `/register?boardId=${boardId}` : '/register')
   const { capabilities } = useSession()
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState(null)
 
   const members = data?.members || []
   const canManage = capabilities?.manageMeetings
+  const selectedBody = (bodies || []).find((b) => b.id === boardId)
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Register of Interests"
-        subtitle="Standing disclosures held by each member"
+        subtitle={selectedBody
+          ? `What is disclosed to ${selectedBody.name}`
+          : 'Standing disclosures held by each member'}
         actions={
           <div className="flex items-center gap-2">
+            <select
+              value={boardId}
+              onChange={(e) => setBoardId(e.target.value)}
+              className="bp-input text-sm py-1.5"
+              title="See the register as one board or committee sees it"
+            >
+              <option value="">All boards & committees</option>
+              {(bodies || []).map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
             <a
-              href={`${apiBase}/register/export.pdf`}
+              href={`${apiBase}/register/export.pdf${boardId ? `?boardId=${boardId}` : ''}`}
               target="_blank"
               rel="noreferrer"
               className="bp-btn bp-btn-secondary"

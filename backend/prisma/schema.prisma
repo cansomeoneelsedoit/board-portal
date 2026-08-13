@@ -17,7 +17,13 @@ model User {
   role        String   @default("DIRECTOR")
   initials    String?
   createdAt   DateTime @default(now())
-  
+
+  // One profile per person, shared by every board and committee they sit on.
+  phone        String?
+  title        String? // how they are addressed on papers, e.g. "Grand Registrar"
+  organisation String? // lodge, firm or association they come from
+  bio          String?
+
   invitations   Invitation[]
   attendances   Attendance[]
   votesAs       Vote[]
@@ -26,6 +32,7 @@ model User {
   proxiesTo     Proxy[]  @relation("ProxyTo")
   approvals     MinutesApproval[]
   interests     MemberInterest[]
+  memberships   BoardMember[]
 }
 
 /// A board, committee or sub-committee.
@@ -84,12 +91,26 @@ model Board {
   @@index([orgKey])
 }
 
+/// One tenure on one board or committee.
+///
+/// A person's service history is the set of these rows: ending a tenure sets
+/// endedAt and how it ended rather than deleting anything, so past members
+/// stay on the books — still choosable for that board, shown with their
+/// status — and the history reads like a service record.
 model BoardMember {
-  id       String @id @default(uuid())
-  boardId  String
-  userId   String
-  role     String @default("DIRECTOR")
-  board    Board  @relation(fields: [boardId], references: [id])
+  id        String    @id @default(uuid())
+  boardId   String
+  userId    String
+  role      String    @default("DIRECTOR")
+  startedAt DateTime?
+  endedAt   DateTime? // null = currently serving
+  status    String    @default("ACTIVE") // ACTIVE while serving; RESIGNED / RETIRED / TERM_ENDED after
+  notes     String?
+  board     Board     @relation(fields: [boardId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([boardId])
 }
 
 model Meeting {

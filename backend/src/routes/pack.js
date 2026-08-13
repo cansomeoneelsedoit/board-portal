@@ -55,7 +55,10 @@ router.get('/:meetingId', async (req, res) => {
     const meeting = await loadMeeting(req.params.meetingId);
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
 
-    const pack = await packs.getPack(meeting, meeting.board, { folderId: req.query.folderId });
+    const pack = await packs.getPack(meeting, meeting.board, {
+      folderId: req.query.folderId,
+      sourceOverride: String(req.query.source || '').toUpperCase() || undefined,
+    });
 
     res.json({
       ...pack,
@@ -90,11 +93,32 @@ router.get('/:meetingId/received', async (req, res) => {
       orderBy: { order: 'asc' },
     });
 
-    // itemNumber -> { receivedAt, fileCount }
+    // itemNumber -> { receivedAt, fileCount, files }
     const byNumber = new Map();
+    const stamp = (number, at, file) => {
+      const cur = byNumber.get(number) || { receivedAt: null, fileCount: 0, files: [] };
+      if (at && (!cur.receivedAt || new Date(at) > new Date(cur.receivedAt))) cur.receivedAt = at;
+      if (file) {
+        cur.fileCount += 1;
+        cur.files.push(file);
+      }
+      byNumber.set(number, cur);
+    };
+
+    // Papers uploaded into the portal always count, whatever the pack source —
+    // a meeting can follow a SharePoint pack AND have papers tabled directly.
+    const docs = await prisma.document.findMany({
+      where: { meetingId: meeting.id, agendaItemId: { not: null } },
+    });
+    const itemNumber = new Map(agendaItems.map((i) => [i.id, Number(i.number)]));
+    for (const d of docs) {
+      const number = itemNumber.get(d.agendaItemId);
+      if (number === undefined) continue;
+      const at = d.modifiedAt || d.createdAt;
+      stamp(number, at, { name: d.name, receivedAt: at });
+    }
 
     const source = packs.effectiveSource(meeting, meeting.board);
-
     const meetingDriveId = meeting.sharepointDriveId || board?.sharepointDriveId;
     if (source === 'SHAREPOINT' && meetingDriveId) {
       const { token } = await getGraphToken();
@@ -111,35 +135,12 @@ router.get('/:meetingId/received', async (req, res) => {
           const files = (await sp.listChildren(token, meetingDriveId, entry.id))
             .filter((f) => !f.isFolder);
           if (!files.length) {
-            if (!byNumber.has(number)) byNumber.set(number, { receivedAt: null, fileCount: 0 });
+            // Folder exists but nothing in it — the paper is awaited.
+            if (!byNumber.has(number)) byNumber.set(number, { receivedAt: null, fileCount: 0, files: [] });
             continue;
           }
-          const latest = files.reduce((a, b) =>
-            new Date(a.modifiedAt || 0) > new Date(b.modifiedAt || 0) ? a : b);
-          byNumber.set(number, {
-            receivedAt: latest.modifiedAt,
-            fileCount: files.length,
-            files: files.map((f) => ({ name: f.name, receivedAt: f.modifiedAt })),
-          });
+          for (const f of files) stamp(number, f.modifiedAt, { name: f.name, receivedAt: f.modifiedAt });
         }
-      }
-    } else {
-      // LOCAL: uploaded papers carry their agenda item directly.
-      const docs = await prisma.document.findMany({
-        where: { meetingId: meeting.id, agendaItemId: { not: null } },
-      });
-      const byItem = new Map();
-      for (const d of docs) {
-        const at = d.modifiedAt || d.createdAt;
-        const cur = byItem.get(d.agendaItemId) || { receivedAt: at, fileCount: 0, files: [] };
-        if (new Date(at) > new Date(cur.receivedAt)) cur.receivedAt = at;
-        cur.fileCount += 1;
-        cur.files.push({ name: d.name, receivedAt: at });
-        byItem.set(d.agendaItemId, cur);
-      }
-      for (const item of agendaItems) {
-        const hit = byItem.get(item.id);
-        if (hit) byNumber.set(Number(item.number), hit);
       }
     }
 
@@ -297,10 +298,15 @@ router.put('/:meetingId/source', requireAdmin, async (req, res) => {
  * Add a paper to the meeting.
  *
  * Goes wherever the meeting's source points: into SharePoint via Graph, or onto
- * this service's disk for a LOCAL meeting. The caller does not choose — the
- * meeting's configured source does.
+ * this service's disk for a LOCAL meeting.
+ *
+ * Who may put it where follows the boardroom rule: an administrator can file a
+ * paper anywhere in the pack (the folder they have open in the browser), but
+ * everyone else's papers — and anything tabled on the floor — go into the
+ * meeting's "Late papers" folder, the one place in the pack that accepts
+ * papers after it went out.
  */
-router.post('/:meetingId/upload', requireAdmin, async (req, res) => {
+router.post('/:meetingId/upload', async (req, res) => {
   try {
     const meeting = await loadMeeting(req.params.meetingId);
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -308,23 +314,31 @@ router.post('/:meetingId/upload', requireAdmin, async (req, res) => {
     const file = req.files?.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded (expected field "file")' });
 
+    const admin = req.session?.role === 'ADMIN';
     const source = packs.effectiveSource(meeting, meeting.board);
-    let { name, tags, agendaItemId, relativePath } = req.body || {};
+    let { name, tags, agendaItemId, relativePath, folderId: requestedFolderId } = req.body || {};
 
-    // A paper tabled on the floor (or uploaded with no agenda item) is business
-    // arising on the day — it files under General business / Any other
-    // business, where the meeting will actually address it.
-    if (!agendaItemId && /\btabled\b/i.test(tags || '')) {
-      const aob = await prisma.agendaItem.findFirst({
-        where: {
-          meetingId: meeting.id,
-          OR: [
-            { title: { contains: 'General business', mode: 'insensitive' } },
-            { title: { contains: 'other business', mode: 'insensitive' } },
-          ],
-        },
-      });
-      if (aob) agendaItemId = aob.id;
+    // Only an administrator chooses where a paper goes or what it attaches to.
+    if (!admin) {
+      agendaItemId = null;
+      requestedFolderId = null;
+      relativePath = null;
+      tags = [tags, 'late-paper'].filter(Boolean).join(',');
+    }
+
+    const tabled = /\btabled\b/i.test(tags || '');
+    const lateBound = tabled || !admin;
+
+    // A late or tabled paper is business arising on the day — attach it to the
+    // agenda item where the meeting will actually address it: Late papers if
+    // the agenda has one, else General business / Any other business.
+    if (!agendaItemId && lateBound) {
+      for (const title of ['Late papers', 'General business', 'other business']) {
+        const item = await prisma.agendaItem.findFirst({
+          where: { meetingId: meeting.id, title: { contains: title, mode: 'insensitive' } },
+        });
+        if (item) { agendaItemId = item.id; break; }
+      }
     }
 
     if (source === 'LOCAL') {
@@ -340,23 +354,66 @@ router.post('/:meetingId/upload', requireAdmin, async (req, res) => {
       });
     }
 
-    // SharePoint: create the meeting's folder if it does not exist yet, so the
-    // first upload of a new meeting works without anyone pre-making folders.
+    // SharePoint. Resolve the meeting's folder first: its own pin, or matched
+    // by date under the board library, created if it does not exist yet.
     const board = meeting.board;
-    if (!board?.sharepointDriveId) {
+    const driveId = meeting.sharepointDriveId || board?.sharepointDriveId;
+    if (!driveId) {
       return res.status(400).json({ error: 'No SharePoint library linked to this board' });
     }
 
     const { token } = await getGraphToken();
-    const folderName = meeting.sharepointFolderId ? null : meetingFolderName(meeting);
+
+    let baseFolderId = meeting.sharepointFolderId;
+    let segments = [];
+    if (!baseFolderId) {
+      if (!board?.sharepointFolderId) {
+        return res.status(400).json({ error: 'Pin a SharePoint folder to this meeting first.' });
+      }
+      baseFolderId = board.sharepointFolderId;
+      const children = await sp.listChildren(token, driveId, baseFolderId);
+      const matched = matchMeetingFolder(children.filter((c) => c.isFolder), meeting);
+      if (matched) baseFolderId = matched.id;
+      else segments = [meetingFolderName(meeting)];
+    }
+
+    let targetFolderId = baseFolderId;
+    let folderLabel = segments.join('/') || null;
+
+    if (admin && requestedFolderId && !lateBound) {
+      // Wherever the administrator has navigated to — anywhere in the pack.
+      targetFolderId = requestedFolderId;
+      segments = [];
+      folderLabel = null;
+    } else if (lateBound) {
+      // The one writable folder for everyone else. Reuse the pack's own late
+      // folder whatever it is numbered ("15. Late papers"), create otherwise.
+      let late = null;
+      if (!segments.length) {
+        const children = await sp.listChildren(token, driveId, baseFolderId);
+        late = children.find((c) => c.isFolder && /late\s*papers/i.test(c.name)) || null;
+      }
+      if (late) {
+        targetFolderId = late.id;
+        segments = [];
+        folderLabel = late.name;
+        // If the agenda follows the pack, the late folder IS an agenda item.
+        if (!agendaItemId) {
+          const item = await prisma.agendaItem.findFirst({
+            where: { meetingId: meeting.id, sourceFolderId: late.id },
+          });
+          if (item) agendaItemId = item.id;
+        }
+      } else {
+        segments = [...segments, 'Late papers'];
+        folderLabel = segments.join('/');
+      }
+    }
 
     const uploaded = await sp.uploadDocument(
       token,
-      {
-        driveId: board.sharepointDriveId,
-        folderId: meeting.sharepointFolderId || board.sharepointFolderId,
-      },
-      folderName ? [folderName] : [],
+      { driveId, folderId: targetFolderId },
+      segments,
       file.name,
       file.data,
       file.mimetype
@@ -371,10 +428,10 @@ router.post('/:meetingId/upload', requireAdmin, async (req, res) => {
       meetingId: meeting.id,
       agendaItemId: agendaItemId || null,
       source: 'SHAREPOINT',
-      sharepointDriveId: board.sharepointDriveId,
+      sharepointDriveId: driveId,
       sharepointItemId: uploaded.itemId,
       sharepointWebUrl: uploaded.webUrl,
-      sharepointFolder: folderName,
+      sharepointFolder: folderLabel,
       etag: uploaded.etag,
       modifiedAt: uploaded.modifiedAt ? new Date(uploaded.modifiedAt) : new Date(),
       lastSyncedAt: new Date(),
@@ -383,7 +440,7 @@ router.post('/:meetingId/upload', requireAdmin, async (req, res) => {
     const document = await prisma.document.upsert({
       where: {
         sharepointDriveId_sharepointItemId: {
-          sharepointDriveId: board.sharepointDriveId,
+          sharepointDriveId: driveId,
           sharepointItemId: uploaded.itemId,
         },
       },

@@ -16,6 +16,9 @@ export default function MemberSearch({
   onConfirm,
   confirmLabel = 'Add',
   placeholder = 'Search by name or email…',
+  // Optional per-person note next to a result — e.g. "served before, retired
+  // 2023" when picking members for a board they once sat on.
+  annotate = null,
 }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -115,6 +118,7 @@ export default function MemberSearch({
                 {u.email} · {humanise(u.role)}
               </span>
             </span>
+            {annotate?.(u)}
             {isPicked(u) && <Check size={16} style={{ color: 'var(--bp-success-fg)' }} />}
           </button>
         ))}

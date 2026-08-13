@@ -246,8 +246,10 @@ async function deleteLocalDocument(documentId) {
 
 /* --------------------------------------------------------------- dispatch */
 
-async function getPack(meeting, board, { folderId } = {}) {
-  const source = effectiveSource(meeting, board);
+async function getPack(meeting, board, { folderId, sourceOverride } = {}) {
+  // An agenda dive knows its folder lives in SharePoint even when the
+  // meeting's own papers are set to direct upload — honour the override.
+  const source = SOURCES.includes(sourceOverride) ? sourceOverride : effectiveSource(meeting, board);
 
   try {
     if (source === 'SHAREPOINT') return await sharepointPack(meeting, board, folderId);

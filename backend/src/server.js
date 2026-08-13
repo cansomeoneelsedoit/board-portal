@@ -46,6 +46,8 @@ api.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
   if (req.session?.role === 'ADMIN') return next();
   if (req.method === 'POST' && req.path === '/coi') return next();
+  // A member may table a paper — the pack route forces it into Late papers.
+  if (req.method === 'POST' && /^\/pack\/[^/]+\/upload$/.test(req.path)) return next();
   return res.status(403).json({
     error: 'This action needs board administrator access.',
     role: req.session?.role || 'MEMBER',

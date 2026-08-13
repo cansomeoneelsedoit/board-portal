@@ -37,13 +37,19 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   // included, with relative paths preserved.
   const folderInput = useRef(null)
 
+  // Set while walking folders an agenda dive opened: those live in SharePoint
+  // whatever the meeting's own papers are set to.
+  const sourceOverride = useRef(null)
+
   const load = useCallback(async (folderId, resetTrail) => {
     setLoading(true)
     setError(null)
     try {
-      const path = meetingId
-        ? `/pack/${meetingId}${folderId ? `?folderId=${encodeURIComponent(folderId)}` : ''}`
-        : `/sharepoint/browse${folderId ? `?folderId=${encodeURIComponent(folderId)}` : ''}`
+      const params = new URLSearchParams()
+      if (folderId) params.set('folderId', folderId)
+      if (meetingId && sourceOverride.current) params.set('source', sourceOverride.current)
+      const qs = params.toString() ? `?${params.toString()}` : ''
+      const path = meetingId ? `/pack/${meetingId}${qs}` : `/sharepoint/browse${qs}`
 
       const { data } = await api.get(path)
       setPack(data)
@@ -61,6 +67,7 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   // pack root one step back.
   useEffect(() => {
     if (!focusFolder?.id) return
+    sourceOverride.current = focusFolder.source || null
     load(focusFolder.id, false).then(() => {
       setTrail([{ id: '__ROOT__', name: 'Board pack' }, { id: focusFolder.id, name: focusFolder.name }])
     })
@@ -72,8 +79,16 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   }
 
   const jumpTo = async (index) => {
+    // Back at the root the meeting's own configured source takes over again.
+    if (index === 0) sourceOverride.current = null
     await load(index === 0 ? null : trail[index].id, index === 0)
     setTrail((t) => t.slice(0, index + 1))
+  }
+
+  // The folder currently open in the browser — where an admin's upload lands.
+  const currentFolderId = () => {
+    const last = trail[trail.length - 1]
+    return last && last.id !== '__ROOT__' ? last.id : null
   }
 
   const upload = async (event, { tabled = false } = {}) => {
@@ -92,15 +107,22 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
         const stamp = new Date().toLocaleString('en-AU', { hour12: false }).replace(/[/:]/g, '-')
         form.append('name', `Tabled on the floor — ${stamp}`)
         form.append('tags', 'tabled')
+      } else {
+        // Admins file papers wherever they have navigated to; everyone else's
+        // papers go to Late papers regardless — the server enforces both.
+        const target = currentFolderId()
+        if (target) form.append('folderId', target)
       }
       const { data } = await api.post(`/pack/${meetingId}/upload`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
+      const dest = data.document?.sharepointFolder
+        || (tabled || !isAdmin ? 'Late papers' : SOURCE_META[data.source]?.label || data.source)
       setNotice({
         tone: 'success',
-        text: `${tabled ? 'Tabled paper' : file.name} added to ${SOURCE_META[data.source]?.label || data.source}`,
+        text: `${tabled ? 'Tabled paper' : file.name} added to ${dest}`,
       })
-      await load(null, true)
+      await load(currentFolderId(), !currentFolderId())
     } catch (e) {
       setNotice({ tone: 'danger', text: e.message })
     } finally {
@@ -153,7 +175,10 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   const meta = SOURCE_META[source] || {}
   const SourceIcon = meta.icon || Folder
   const items = pack?.items || []
-  const canUpload = capabilities?.writeDocuments && pack?.canUpload && meetingId
+  const isAdmin = Boolean(capabilities?.writeDocuments)
+  // Everyone may put a paper in — admins anywhere, members into Late papers
+  // only (the server enforces it; the buttons say so).
+  const canUpload = pack?.canUpload && meetingId
 
   return (
     <div>
@@ -201,17 +226,25 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
 
         {canUpload && (
           <>
-            <button onClick={() => fileInput.current?.click()} disabled={busy === 'upload'} className="bp-btn bp-btn-secondary">
-              <Upload size={14} /> {busy === 'upload' ? 'Uploading…' : 'Add paper'}
+            <button
+              onClick={() => fileInput.current?.click()}
+              disabled={busy === 'upload'}
+              className="bp-btn bp-btn-secondary"
+              title={isAdmin
+                ? 'Add a paper to the folder you have open'
+                : 'Your paper goes into Late papers — the one folder open for papers after the pack went out'}
+            >
+              <Upload size={14} /> {busy === 'upload' ? 'Uploading…' : isAdmin ? 'Add paper' : 'Add late paper'}
             </button>
             <button
               onClick={() => cameraInput.current?.click()}
               disabled={busy === 'upload'}
               className="bp-btn bp-btn-secondary"
-              title="Photograph a paper tabled on the floor — opens the camera on a phone"
+              title="Photograph a paper tabled on the floor — opens the camera on a phone. Files under Late papers."
             >
               <Camera size={14} /> Table a paper
             </button>
+            {isAdmin && (
             <button
               onClick={() => folderInput.current?.click()}
               disabled={busy === 'upload'}
@@ -220,6 +253,7 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
             >
               <FolderUp size={14} /> Add folder
             </button>
+            )}
             <input ref={fileInput} type="file" onChange={upload} className="hidden" />
             <input
               ref={folderInput}

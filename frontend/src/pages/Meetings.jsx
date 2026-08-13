@@ -6,6 +6,7 @@ import { useApi } from '../lib/useApi'
 import { fmtDateTime } from '../lib/format'
 import { Badge, Card, DataState, PageHeader } from '../components/ui'
 import PackFolderField from '../components/PackFolderField'
+import VenueInput from '../components/VenueInput'
 
 const FILTERS = [
   { id: 'all',       label: 'All' },
@@ -300,9 +301,9 @@ function NewMeetingModal({ onClose, onCreated }) {
           </div>
 
           <label className="block">
-            <span className="text-sm font-medium">Location / Link</span>
-            <input value={form.location} onChange={set('location')} className="bp-input w-full mt-1"
-              placeholder="Boardroom A or meeting link" />
+            <span className="text-sm font-medium">Location / Venue</span>
+            <VenueInput value={form.location} onChange={set('location')}
+              placeholder="Pick a venue or type an address" />
           </label>
 
           <label className="block">

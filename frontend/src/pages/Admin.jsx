@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { UserPlus, Trash2, Plus, Users, Building2, ShieldAlert, X, Pencil, Check } from 'lucide-react'
 import api from '../lib/api'
 import { useApi } from '../lib/useApi'
-import { humanise } from '../lib/format'
+import { humanise, fmtDate } from '../lib/format'
 import { Avatar, Badge, Card, CardHeader, DataState, PageHeader } from '../components/ui'
 import MemberSearch from '../components/MemberSearch'
 import SharePointSetup from '../components/SharePointSetup'
@@ -248,58 +249,92 @@ function BodyRow({ body: b, busy, onRemove, onSaved }) {
 
 /* ---------------------------------------------------------------- members */
 
+const END_STATUSES = ['RESIGNED', 'RETIRED', 'TERM_ENDED', 'REMOVED', 'DECEASED']
+
+/**
+ * Who sits on each board and committee — the service register.
+ *
+ * Standing someone down ends their tenure rather than deleting it, so past
+ * members stay on the record with their status, remain choosable for that
+ * board, and their profile reads like a service history.
+ */
 function BoardMembers() {
-  const { data, loading, error, refetch } = useApi('/board-members')
+  const { data: bodies } = useApi('/boards')
+  const [boardId, setBoardId] = useState('')
+  const membersPath = boardId ? `/board-members?boardId=${boardId}` : '/board-members'
+  const { data, loading, error, refetch } = useApi(membersPath)
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(null)
   const [notice, setNotice] = useState(null)
 
   const members = data || []
+  const current = members.filter((m) => !m.endedAt)
+  const past = members.filter((m) => m.endedAt)
+  const pastByUser = new Map(past.map((m) => [m.userId, m]))
+
+  const run = async (id, fn) => {
+    setBusy(id)
+    setNotice(null)
+    try {
+      await fn()
+      await refetch()
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const add = async (userIds) => {
-    await api.post('/board-members', { userIds })
+    await api.post('/board-members', { userIds, ...(boardId ? { boardId } : {}) })
     setAdding(false)
     await refetch()
   }
 
-  const setRole = async (member, role) => {
-    setBusy(member.id)
-    try {
-      await api.put(`/board-members/${member.id}`, { role })
-      await refetch()
-    } catch (e) {
-      setNotice({ tone: 'danger', text: e.message })
-    } finally {
-      setBusy(null)
-    }
-  }
+  const setRole = (m, role) => run(m.id, () => api.put(`/board-members/${m.id}`, { role }))
+  const standDown = (m, status) => run(m.id, () => api.put(`/board-members/${m.id}`, { status }))
+  const reappoint = (m) =>
+    run(m.id, () => api.post('/board-members', { userIds: [m.userId], boardId: m.boardId, role: m.role }))
+  const erase = (m) => run(m.id, () => api.delete(`/board-members/${m.id}`))
 
-  const remove = async (member) => {
-    setBusy(member.id)
-    try {
-      await api.delete(`/board-members/${member.id}`)
-      await refetch()
-    } catch (e) {
-      setNotice({ tone: 'danger', text: e.message })
-    } finally {
-      setBusy(null)
-    }
-  }
+  const since = (m) => (m.startedAt ? fmtDate(m.startedAt) : null)
 
   return (
     <Card>
       <CardHeader
-        title={<span className="flex items-center gap-2"><Users size={16} /> Board members ({members.length})</span>}
+        title={<span className="flex items-center gap-2"><Users size={16} /> Board members ({current.length})</span>}
         action={
-          <button onClick={() => setAdding((a) => !a)} className="bp-btn bp-btn-primary">
-            {adding ? <X size={14} /> : <UserPlus size={14} />} {adding ? 'Close' : 'Appoint'}
-          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={boardId}
+              onChange={(e) => setBoardId(e.target.value)}
+              className="bp-input text-xs py-1.5"
+              title="Which board or committee"
+            >
+              {(bodies || []).map((b, i) => (
+                <option key={b.id} value={i === 0 ? '' : b.id}>{b.name}</option>
+              ))}
+            </select>
+            <button onClick={() => setAdding((a) => !a)} className="bp-btn bp-btn-primary">
+              {adding ? <X size={14} /> : <UserPlus size={14} />} {adding ? 'Close' : 'Appoint'}
+            </button>
+          </div>
         }
       />
 
       {adding && (
         <div className="p-4" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
-          <MemberSearch onConfirm={add} confirmLabel="Appoint" />
+          <MemberSearch
+            onConfirm={add}
+            confirmLabel="Appoint"
+            annotate={(u) =>
+              pastByUser.has(u.id) ? (
+                <Badge tone="warning">
+                  served before · {humanise(pastByUser.get(u.id).status)}
+                </Badge>
+              ) : null
+            }
+          />
         </div>
       )}
 
@@ -315,14 +350,20 @@ function BoardMembers() {
         onRetry={refetch}
       />
 
-      {members.length > 0 && (
+      {current.length > 0 && (
         <div className="bp-divide">
-          {members.map((m) => (
-            <div key={m.id} className="p-3 flex items-center gap-3">
+          {current.map((m) => (
+            <div key={m.id} className="p-3 flex items-center gap-3 flex-wrap">
               <Avatar name={m.user?.name} initials={m.user?.initials} size={32} />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{m.user?.name || 'Unknown'}</p>
-                <p className="text-xs bp-muted truncate">{m.user?.email}</p>
+                <Link to={`/people/${m.userId}`} className="text-sm font-medium truncate block hover:underline"
+                  style={{ color: 'var(--bp-primary)' }} title="Open their profile">
+                  {m.user?.name || 'Unknown'}
+                </Link>
+                <p className="text-xs bp-muted truncate">
+                  {m.user?.email}
+                  {since(m) ? ` · since ${since(m)}` : ''}
+                </p>
               </div>
               <select
                 value={m.role}
@@ -332,17 +373,61 @@ function BoardMembers() {
               >
                 {BOARD_ROLES.map((r) => <option key={r} value={r}>{humanise(r)}</option>)}
               </select>
+              <select
+                value=""
+                onChange={(e) => e.target.value && standDown(m, e.target.value)}
+                disabled={busy === m.id}
+                className="bp-input text-xs py-1"
+                title="End this tenure — it stays on their record"
+              >
+                <option value="">Stand down…</option>
+                {END_STATUSES.map((s) => <option key={s} value={s}>{humanise(s)}</option>)}
+              </select>
               <button
-                onClick={() => remove(m)}
+                onClick={() => erase(m)}
                 disabled={busy === m.id}
                 className="bp-subtle hover:text-[var(--bp-danger-fg)] p-1.5"
-                title="Stand down"
+                title="Remove this row entirely — only for rows added by mistake"
               >
                 <Trash2 size={14} />
               </button>
             </div>
           ))}
         </div>
+      )}
+
+      {past.length > 0 && (
+        <>
+          <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide bp-subtle">
+            Served before
+          </p>
+          <div className="bp-divide">
+            {past.map((m) => (
+              <div key={m.id} className="p-3 flex items-center gap-3 flex-wrap">
+                <Avatar name={m.user?.name} initials={m.user?.initials} size={32} />
+                <div className="min-w-0 flex-1">
+                  <Link to={`/people/${m.userId}`} className="text-sm font-medium truncate block hover:underline"
+                    style={{ color: 'var(--bp-primary)' }} title="Open their profile">
+                    {m.user?.name || 'Unknown'}
+                  </Link>
+                  <p className="text-xs bp-muted truncate">
+                    {humanise(m.role)}
+                    {m.startedAt ? ` · ${fmtDate(m.startedAt)}` : ''} – {fmtDate(m.endedAt)}
+                  </p>
+                </div>
+                <Badge tone="danger">{humanise(m.status)}</Badge>
+                <button
+                  onClick={() => reappoint(m)}
+                  disabled={busy === m.id}
+                  className="bp-btn bp-btn-secondary"
+                  title="Appoint them again — a new tenure alongside the old one"
+                >
+                  <UserPlus size={13} /> Reappoint
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </Card>
   )
@@ -466,10 +551,11 @@ function PersonRow({ person: u, onSaved }) {
     return (
       <tr>
         <td>
-          <span className="flex items-center gap-2.5">
+          <Link to={`/people/${u.id}`} className="flex items-center gap-2.5 hover:underline"
+            title="Open their profile — service history and disclosures">
             <Avatar name={u.name} initials={u.initials} size={26} />
-            <span className="font-medium">{u.name}</span>
-          </span>
+            <span className="font-medium" style={{ color: 'var(--bp-primary)' }}>{u.name}</span>
+          </Link>
         </td>
         <td className="bp-muted">{u.email}</td>
         <td><Badge status={u.role} tone="neutral" /></td>

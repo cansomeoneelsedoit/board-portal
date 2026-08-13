@@ -11,7 +11,7 @@ import { fmtDate, humanise } from '../lib/format'
 import { Avatar, Badge, DataState } from './ui'
 import BoardPackBrowser from './BoardPackBrowser'
 import MeetingInvitations from './MeetingInvitations'
-import { fmtBytes } from '../lib/format'
+import { fmtBytes, fmtDateTime } from '../lib/format'
 import AttendanceRoll from './AttendanceRoll'
 
 /**
@@ -26,7 +26,9 @@ export default function MeetingTabs({ meeting, received, declarations, onChanged
   // Set when an agenda item is clicked: the pack tab opens inside that folder.
   const [packTarget, setPackTarget] = useState(null)
   const diveIntoFolder = (item) => {
-    setPackTarget({ id: item.sourceFolderId, name: `${item.number}. ${item.title}`, at: Date.now() })
+    // Pack-derived folders are SharePoint folders — open them there even when
+    // the meeting's own papers are set to direct upload.
+    setPackTarget({ id: item.sourceFolderId, name: `${item.number}. ${item.title}`, source: 'SHAREPOINT', at: Date.now() })
     setTab('pack')
   }
 
@@ -406,26 +408,51 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
                 </>
               )}
 
-              {(item.documents || []).length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {item.documents.map((d) => {
-                    const fileStamp = stampInfo?.files?.find((f) => f.name === d.name)
-                    return (
-                      <div key={d.id} className="flex flex-wrap items-center gap-2 text-xs bp-muted">
-                        <span className="truncate">{d.name}</span>
-                        <span className="bp-subtle">{fmtBytes(d.size)}</span>
-                        {fileStamp?.status && (
+              {(() => {
+                // Every paper for this item, wherever it lives: the received
+                // stamps cover the SharePoint pack folder, the documents cover
+                // papers uploaded here — merged by name so nothing shows twice.
+                const docs = item.documents || []
+                const stamped = (stampInfo?.files || []).map((f) => ({
+                  key: `s-${f.name}`,
+                  name: f.name,
+                  receivedAt: f.receivedAt,
+                  status: f.status,
+                  size: docs.find((d) => d.name === f.name)?.size,
+                }))
+                const files = [
+                  ...stamped,
+                  ...docs
+                    .filter((d) => !stamped.some((f) => f.name === d.name))
+                    .map((d) => ({
+                      key: `d-${d.id}`, name: d.name, size: d.size,
+                      receivedAt: d.modifiedAt || d.createdAt, status: null,
+                    })),
+                ]
+                if (!files.length) return null
+                return (
+                  <div className="mt-2 space-y-1">
+                    {files.map((f) => (
+                      <div key={f.key} className="flex flex-wrap items-center gap-2 text-xs bp-muted">
+                        <span className="truncate">{f.name}</span>
+                        {f.size ? <span className="bp-subtle">{fmtBytes(f.size)}</span> : null}
+                        {f.receivedAt && (
+                          <span className="bp-subtle" title="When this paper was received">
+                            received {fmtDateTime(f.receivedAt)}
+                          </span>
+                        )}
+                        {f.status && (
                           <span className={`bp-badge bp-badge--${
-                            fileStamp.status === 'ON_TIME' ? 'success' : fileStamp.status === 'LATE' ? 'warning' : 'danger'
+                            f.status === 'ON_TIME' ? 'success' : f.status === 'LATE' ? 'warning' : 'danger'
                           }`}>
-                            {fileStamp.status === 'ON_TIME' ? 'on time' : fileStamp.status === 'LATE' ? 'late' : 'after board date'}
+                            {f.status === 'ON_TIME' ? 'on time' : f.status === 'LATE' ? 'late' : 'after board date'}
                           </span>
                         )}
                       </div>
-                    )
-                  })}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )
+              })()}
 
               {itemConflicts.map((d) => (
                 <div key={d.id} className="mt-2 p-2 rounded-md text-xs"

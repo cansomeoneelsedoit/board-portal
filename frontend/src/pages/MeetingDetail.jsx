@@ -12,6 +12,7 @@ import { Avatar, Badge, Card, CardHeader, DataState, Field, PageHeader } from '.
 import MeetingTabs from '../components/MeetingTabs'
 import MeetingInvitations from '../components/MeetingInvitations'
 import PackFolderField from '../components/PackFolderField'
+import VenueInput from '../components/VenueInput'
 
 export default function MeetingDetail() {
   const { id } = useParams()
@@ -82,9 +83,21 @@ export default function MeetingDetail() {
             </span>
           </Field>
           <Field label="Location">
-            <span className="inline-flex items-center gap-1.5">
-              <MapPin size={14} /> {meeting.location || '—'}
-            </span>
+            {meeting.location ? (
+              <a
+                href={/^https?:\/\//i.test(meeting.location)
+                  ? meeting.location
+                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(meeting.location)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="bp-link inline-flex items-center gap-1.5"
+                title="Open in maps"
+              >
+                <MapPin size={14} /> {meeting.location}
+              </a>
+            ) : (
+              <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> —</span>
+            )}
           </Field>
           <Field label="Video">
             {meeting.videoUrl ? (
@@ -227,8 +240,8 @@ function EditMeeting({ meeting, onClose, onSaved }) {
             </label>
           </div>
           <label className="block">
-            <span className="text-sm font-medium">Location / Link</span>
-            <input value={form.location} onChange={set('location')} className="bp-input w-full mt-1" />
+            <span className="text-sm font-medium">Location / Venue</span>
+            <VenueInput value={form.location} onChange={set('location')} placeholder="Pick a venue or type an address" />
           </label>
           <label className="block">
             <span className="text-sm font-medium">Video Link</span>

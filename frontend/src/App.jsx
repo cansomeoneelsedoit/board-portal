@@ -12,6 +12,7 @@ import Proxies from './pages/Proxies'
 import Integrations from './pages/Integrations'
 import Admin from './pages/Admin'
 import Register from './pages/Register'
+import MemberProfile from './pages/MemberProfile'
 
 // Host verticals mount this app under a sub-path (e.g. /board-portal).
 const basename =
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="register" element={<Register />} />
           <Route path="proxies" element={<Proxies />} />
           <Route path="admin" element={<Admin />} />
+          <Route path="people/:id" element={<MemberProfile />} />
           <Route path="integrations" element={<Integrations />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
