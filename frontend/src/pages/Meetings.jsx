@@ -44,7 +44,7 @@ export default function Meetings() {
         subtitle="Schedule, manage and track board meetings"
         actions={
           <button onClick={() => setShowNew(true)} className="bp-btn bp-btn-primary">
-            <Plus size={16} /> New Meeting
+            <Plus size={16} /> Schedule Meeting
           </button>
         }
       />
@@ -180,9 +180,9 @@ function NewMeetingModal({ onClose, onCreated }) {
 
         <div className="p-5 space-y-4">
           <label className="block">
-            <span className="text-sm font-medium">Meeting title</span>
+            <span className="text-sm font-medium">Meeting Title</span>
             <input required value={form.title} onChange={set('title')} className="bp-input w-full mt-1"
-              placeholder="e.g. September Ordinary Meeting" />
+              placeholder="e.g. Board Meeting - Q3 Review" />
           </label>
 
           <div className="grid grid-cols-2 gap-3">
@@ -197,13 +197,13 @@ function NewMeetingModal({ onClose, onCreated }) {
           </div>
 
           <label className="block">
-            <span className="text-sm font-medium">Location</span>
+            <span className="text-sm font-medium">Location / Link</span>
             <input value={form.location} onChange={set('location')} className="bp-input w-full mt-1"
-              placeholder="Committee Room 1, or Video conference" />
+              placeholder="Boardroom A or meeting link" />
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium">Video link</span>
+            <span className="text-sm font-medium">Video Link</span>
             <input value={form.videoUrl} onChange={set('videoUrl')} className="bp-input w-full mt-1"
               placeholder="https://…" />
           </label>
@@ -222,7 +222,7 @@ function NewMeetingModal({ onClose, onCreated }) {
         <div className="p-5 flex justify-end gap-3" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
           <button type="button" onClick={onClose} className="bp-btn bp-btn-secondary">Cancel</button>
           <button type="submit" disabled={saving} className="bp-btn bp-btn-primary">
-            {saving ? 'Saving…' : 'Schedule meeting'}
+            {saving ? 'Saving…' : 'Schedule Meeting'}
           </button>
         </div>
       </form>

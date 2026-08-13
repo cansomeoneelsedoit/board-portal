@@ -16,7 +16,7 @@ import BoardPackBrowser from './BoardPackBrowser'
  * they are tabs of one page rather than separate destinations.
  */
 export default function MeetingTabs({ meeting }) {
-  const [tab, setTab] = useState('pack')
+  const [tab, setTab] = useState('attendance')
 
   const attendances = meeting.attendances || []
   const motions = meeting.motions || []
@@ -26,12 +26,15 @@ export default function MeetingTabs({ meeting }) {
   const { data: cois, loading: coiLoading, error: coiError } =
     useApi(`/coi?meetingId=${encodeURIComponent(meeting.id)}`)
 
+  // Order follows how a meeting actually runs: who is here, what they must
+  // declare, confirmation of the last minutes, then the papers, then what gets
+  // resolved.
   const tabs = [
-    { id: 'pack',       label: 'Board pack',  icon: FolderOpen },
     { id: 'attendance', label: 'Attendance',  icon: Users,          count: attendances.length },
     { id: 'coi',        label: 'Conflicts',   icon: AlertTriangle,  count: cois?.length },
-    { id: 'motions',    label: 'Motions',     icon: VoteIcon,       count: motions.length },
     { id: 'minutes',    label: 'Minutes',     icon: ClipboardList },
+    { id: 'pack',       label: 'Board pack',  icon: FolderOpen },
+    { id: 'motions',    label: 'Motions',     icon: VoteIcon,       count: motions.length },
   ]
 
   return (
