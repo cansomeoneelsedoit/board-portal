@@ -17,6 +17,88 @@ const router = express.Router();
  * a member holds; a declaration is what they said when a relevant item came up.
  */
 
+/**
+ * The register as a PDF, in the shape of the board's own document — for
+ * circulating with the pack. ?meetingId= scopes it to that meeting's body and
+ * stamps the meeting on the cover; ?boardId= scopes without a meeting.
+ */
+router.get('/export.pdf', async (req, res) => {
+  try {
+    const { streamRegisterPdf } = require('../lib/register-pdf');
+
+    let board = null;
+    let subtitle = null;
+
+    if (req.query.meetingId) {
+      const meeting = await prisma.meeting.findUnique({
+        where: { id: req.query.meetingId },
+        include: { board: true },
+      });
+      if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+      board = meeting.board;
+      subtitle = `Produced for: ${meeting.title}${meeting.date ? ` — ${new Date(meeting.date).toLocaleDateString('en-AU', { dateStyle: 'long' })}` : ''}`;
+    } else if (req.query.boardId) {
+      board = await prisma.board.findUnique({ where: { id: req.query.boardId } });
+    }
+
+    const interests = await prisma.memberInterest.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...(board
+          ? { OR: [{ disclosedToAll: true }, { disclosures: { some: { boardId: board.id } } }] }
+          : {}),
+      },
+      include: {
+        user: true,
+        disclosures: { include: { board: { select: { id: true, name: true, shortName: true } } } },
+      },
+      orderBy: [{ userId: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    const byMember = new Map();
+    for (const i of interests) {
+      if (!byMember.has(i.userId)) {
+        byMember.set(i.userId, {
+          member: i.user?.name || 'Unknown member',
+          notified: true,
+          interests: [],
+          boardSteps: i.boardSteps,
+          memberActions: i.memberActions,
+        });
+      }
+      const entry = byMember.get(i.userId);
+      entry.interests.push({
+        interest: i.interest,
+        standing: i.disclosedToAll,
+        boards: (i.disclosures || []).map((d) => d.board).filter(Boolean),
+      });
+      if (!i.notified) entry.notified = false;
+      if (!entry.boardSteps && i.boardSteps) entry.boardSteps = i.boardSteps;
+      if (!entry.memberActions && i.memberActions) entry.memberActions = i.memberActions;
+    }
+
+    const members = [...byMember.values()].sort((a, b) => a.member.localeCompare(b.member));
+    // HTTP headers are ASCII-only; the pretty name travels via filename*.
+    const pretty = `Conflict of Interest Register - ${board?.name || 'All bodies'}.pdf`
+      .replace(/[\\/:*?"<>|]/g, '-');
+    const ascii = pretty.replace(/[^\x20-\x7e]/g, '-');
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(pretty)}`
+    );
+
+    streamRegisterPdf(res, {
+      title: board ? board.name : 'All boards and committees',
+      subtitle,
+      members,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** The register, grouped by member so it reads like the document. */
 router.get('/', async (req, res) => {
   try {

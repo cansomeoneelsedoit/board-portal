@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import {
   FolderOpen, Users, AlertTriangle, Vote as VoteIcon, ClipboardList, Check, X, Video, MapPin, Scale,
-  UserCheck, ArrowRight, Trash2,
+  UserCheck, ArrowRight, Trash2, FileDown,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApi } from '../lib/useApi'
-import api from '../lib/api'
+import api, { apiBase } from '../lib/api'
 import { useSession } from '../lib/useSession'
 import { fmtDate, humanise } from '../lib/format'
 import { Avatar, Badge, DataState } from './ui'
@@ -97,6 +97,18 @@ export default function MeetingTabs({ meeting }) {
 
       {tab === 'coi' && (
         <div className="p-4">
+          <div className="mb-3 flex justify-end">
+            {/* The register as a PDF in the board's own document format,
+                scoped to this meeting's body — for the pack. */}
+            <a
+              href={`${apiBase}/register/export.pdf?meetingId=${encodeURIComponent(meeting.id)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="bp-btn bp-btn-secondary"
+            >
+              <FileDown size={14} /> Conflict register PDF
+            </a>
+          </div>
           <ConflictAlerts meetingId={meeting.id} />
           <DataState
             loading={coiLoading}

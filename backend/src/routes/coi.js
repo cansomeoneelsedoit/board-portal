@@ -117,7 +117,7 @@ router.get('/', async (req, res) => {
 /** Declare an interest. Always lands at PENDING for the meeting to rule on. */
 router.post('/', async (req, res) => {
   try {
-    const { meetingId, userId, boardId, type, description, motionId } = req.body || {};
+    const { meetingId, userId, boardId, type, description, motionId, agendaItemId } = req.body || {};
 
     if (!userId || !description?.trim()) {
       return res.status(400).json({ error: 'Member and description are required' });
@@ -139,6 +139,7 @@ router.post('/', async (req, res) => {
         userId,
         boardId: resolvedBoardId,
         motionId: motionId || null,
+        agendaItemId: agendaItemId || null,
         type,
         description: description.trim(),
         effect: 'PENDING',

@@ -49,6 +49,8 @@ router.get('/roll/:meetingId', async (req, res) => {
       const rec = byUser.get(inv.userId);
       return {
         userId: inv.userId,
+        invitationId: inv.id,
+        votingRights: Boolean(inv.votingRights),
         member: inv.user?.name || 'Unknown',
         initials: inv.user?.initials || null,
         role: inv.role,

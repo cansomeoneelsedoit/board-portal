@@ -17,6 +17,9 @@ export default function MeetingDetail() {
   const { data: meeting, loading, error, refetch } = useApi(endpoints.meeting(id))
   // Received stamps for the agenda - the automated "Received 29/7 @ 15:15".
   const { data: received } = useApi(id ? `/pack/${id}/received` : null)
+  // Declarations pinned to agenda items, so the agenda itself carries the
+  // warning against the business it affects.
+  const { data: declarations } = useApi(id ? `/coi?meetingId=${encodeURIComponent(id)}` : null)
   const { capabilities } = useSession()
   const [editing, setEditing] = useState(false)
 
@@ -124,17 +127,26 @@ export default function MeetingDetail() {
                         {item.duration ? ` · ${item.duration} min` : ''}
                       </p>
                       <ReceivedStamp info={received?.items?.find((r) => r.agendaItemId === item.id)} />
+                      <AgendaConflicts
+                        declarations={(declarations || []).filter((d) => d.agendaItemId === item.id)}
+                      />
                       {item.notes && <p className="text-xs bp-muted mt-1">{item.notes}</p>}
 
                       {(item.documents || []).length > 0 && (
                         <div className="mt-2 space-y-1">
-                          {item.documents.map((d) => (
-                            <div key={d.id} className="flex items-center gap-2 text-xs bp-muted">
-                              <FileText size={12} className="shrink-0" />
-                              <span className="truncate">{d.name}</span>
-                              <span className="bp-subtle">{fmtBytes(d.size)}</span>
-                            </div>
-                          ))}
+                          {item.documents.map((d) => {
+                            const fileStamp = received?.items
+                              ?.find((r) => r.agendaItemId === item.id)
+                              ?.files?.find((f) => f.name === d.name)
+                            return (
+                              <div key={d.id} className="flex items-center gap-2 text-xs bp-muted">
+                                <FileText size={12} className="shrink-0" />
+                                <span className="truncate">{d.name}</span>
+                                <span className="bp-subtle">{fmtBytes(d.size)}</span>
+                                {fileStamp?.status && <FileStatusBadge status={fileStamp.status} />}
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -154,6 +166,40 @@ export default function MeetingDetail() {
   )
 }
 
+
+/**
+ * Conflicts declared against this agenda item, shown on the agenda itself —
+ * the chair sees the warning at the item, not just on the Conflicts tab.
+ */
+function AgendaConflicts({ declarations }) {
+  if (!declarations.length) return null
+  return (
+    <div className="mt-2 space-y-1.5">
+      {declarations.map((d) => (
+        <div
+          key={d.id}
+          className="p-2 rounded-md text-xs flex items-start gap-2"
+          style={{ background: 'var(--bp-warning-bg)', color: 'var(--bp-warning-fg)' }}
+        >
+          <span className="font-semibold shrink-0">⚠ Conflict — {d.user?.name || 'Member'}:</span>
+          <span className="min-w-0">
+            {d.description}
+            <span className="opacity-80">
+              {' '}({humanise(d.type)} · {humanise(d.effect === 'PENDING' ? 'not yet resolved' : d.effect)})
+            </span>
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Per-report stamp: on time (green), late (amber), after board date (red). */
+function FileStatusBadge({ status }) {
+  const tone = status === 'ON_TIME' ? 'success' : status === 'LATE' ? 'warning' : 'danger'
+  const label = status === 'ON_TIME' ? 'on time' : status === 'LATE' ? 'late' : 'after board date'
+  return <span className={`bp-badge bp-badge--${tone}`}>{label}</span>
+}
 
 /** "Received 4 Aug 2026 at 3:15pm" plus on-time / late / after-board-date. */
 function ReceivedStamp({ info }) {

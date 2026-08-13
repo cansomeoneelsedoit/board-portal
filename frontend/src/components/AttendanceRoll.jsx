@@ -24,6 +24,31 @@ export default function AttendanceRoll({ meetingId }) {
   const summary = data?.summary
   const canMark = capabilities?.manageMeetings
 
+  // Grouped the way an AGM roll reads: the board itself, then invitees, then
+  // guests and ordinary members — who belongs to what is never ambiguous.
+  const CATEGORY = (role) => {
+    const r = String(role || '').toUpperCase()
+    if (['CHAIR', 'SECRETARY', 'TREASURER', 'DIRECTOR', 'COMMITTEE_MEMBER'].includes(r)) return 'The Board'
+    if (r === 'INVITEE') return 'Invitees'
+    return 'Guests & Members'
+  }
+  const groups = ['The Board', 'Invitees', 'Guests & Members']
+    .map((label) => ({ label, rows: roll.filter((r) => CATEGORY(r.role) === label) }))
+    .filter((g) => g.rows.length > 0)
+
+  const toggleVoting = async (row) => {
+    if (!row.invitationId || !canMark) return
+    setBusy(row.userId)
+    try {
+      await api.put(`/invitations/${row.invitationId}`, { votingRights: !row.votingRights })
+      await refetch()
+    } catch (e) {
+      setNotice(e.message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const mark = async (row, present, mode) => {
     setBusy(row.userId)
     setNotice(null)
@@ -63,9 +88,13 @@ export default function AttendanceRoll({ meetingId }) {
         onRetry={refetch}
       />
 
-      {roll.length > 0 && (
-        <div className="bp-divide">
-          {roll.map((row) => (
+      {groups.map((group) => (
+        <div key={group.label}>
+          <p className="px-1 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide bp-subtle">
+            {group.label} ({group.rows.length})
+          </p>
+          <div className="bp-divide">
+          {group.rows.map((row) => (
             <div key={row.userId} className="py-2.5 px-1 flex items-center gap-3">
               <Avatar name={row.member} initials={row.initials} size={30} />
               <div className="min-w-0 flex-1">
@@ -78,6 +107,18 @@ export default function AttendanceRoll({ meetingId }) {
                   {row.rsvp ? ` · RSVP ${humanise(row.rsvp)}` : ''}
                 </p>
               </div>
+
+              {/* Voting or non-voting attendee — click to change (admin). */}
+              {row.invitationId && (
+                <button
+                  onClick={() => toggleVoting(row)}
+                  disabled={!canMark || busy === row.userId}
+                  className={`bp-badge ${row.votingRights ? 'bp-badge--success' : 'bp-badge--neutral'}`}
+                  title={canMark ? 'Click to toggle voting rights' : undefined}
+                >
+                  {row.votingRights ? 'Voting' : 'Non-voting'}
+                </button>
+              )}
 
               {/* Mode toggle only means something once someone is present */}
               {row.present === true && (
@@ -138,8 +179,9 @@ export default function AttendanceRoll({ meetingId }) {
               )}
             </div>
           ))}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   )
 }

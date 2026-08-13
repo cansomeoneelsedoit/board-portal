@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { UserPlus, Send, Trash2, X } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { UserPlus, Send, Trash2, X, FileUp } from 'lucide-react'
 import api from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { fmtDate, humanise } from '../lib/format'
@@ -29,6 +29,34 @@ export default function MeetingInvitations({ meetingId }) {
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState(null)
   const [busy, setBusy] = useState(null)
+  const csvInput = useRef(null)
+
+  const importCsv = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setBusy('csv')
+    setNotice(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const { data: result } = await api.post(
+        `/invitations/import?meetingId=${encodeURIComponent(meetingId)}`,
+        form,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      setNotice({
+        tone: 'success',
+        text: `Imported: ${result.invited} invited, ${result.created} new people, ${result.skipped} already listed` +
+          (result.problems?.length ? ` — ${result.problems.length} rows skipped` : ''),
+      })
+      await refetch()
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const invitations = data || []
   const canManage = capabilities?.manageMeetings
@@ -91,6 +119,15 @@ export default function MeetingInvitations({ meetingId }) {
                   <Send size={14} /> {busy === 'send' ? 'Sending…' : `Send (${unsent})`}
                 </button>
               )}
+              <button
+                onClick={() => csvInput.current?.click()}
+                disabled={busy === 'csv'}
+                className="bp-btn bp-btn-secondary"
+                title="Upload a member list CSV: name, email, role, voting (yes/no)"
+              >
+                <FileUp size={14} /> {busy === 'csv' ? 'Importing…' : 'Import CSV'}
+              </button>
+              <input ref={csvInput} type="file" accept=".csv,text/csv" onChange={importCsv} className="hidden" />
               <button onClick={() => setAdding((a) => !a)} className="bp-btn bp-btn-primary">
                 {adding ? <X size={14} /> : <UserPlus size={14} />}
                 {adding ? 'Close' : 'Invite'}

@@ -314,6 +314,10 @@ model COI {
   userId      String
   motionId    String?
 
+  /// The agenda item the conflict attaches to, so the agenda itself shows the
+  /// warning against the business it affects.
+  agendaItemId String?
+
   /// Which board or committee the interest concerns. Null for legacy rows.
   boardId     String?
 

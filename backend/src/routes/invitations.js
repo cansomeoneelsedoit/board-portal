@@ -81,6 +81,106 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
+
+/**
+ * Import attendees from a CSV — the AGM case: a membership list uploaded once,
+ * each row invited and marked voting or non-voting.
+ *
+ * Columns (header row optional): name, email[, role][, voting]
+ *   role    defaults to MEMBER
+ *   voting  yes/no, true/false, 1/0 — defaults to voting
+ * People are matched by email; anyone new joins the directory first.
+ */
+router.post('/import', requireAdmin, async (req, res) => {
+  try {
+    const meetingId = req.query.meetingId || req.body?.meetingId;
+    if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
+    const file = req.files?.file;
+    if (!file) return res.status(400).json({ error: 'No CSV uploaded (expected field "file")' });
+
+    const meeting = await prisma.meeting.findUnique({ where: { id: meetingId } });
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    // Minimal CSV parse with quoted-field support.
+    const parseLine = (line) => {
+      const out = [];
+      let cur = '';
+      let q = false;
+      for (const ch of line) {
+        if (ch === '"') { q = !q; continue; }
+        if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; continue; }
+        cur += ch;
+      }
+      out.push(cur.trim());
+      return out;
+    };
+
+    const lines = file.data.toString('utf8').split(/\r?\n/).filter((l) => l.trim());
+    if (!lines.length) return res.status(400).json({ error: 'The file is empty' });
+
+    let rows = lines.map(parseLine);
+    let cols = { name: 0, email: 1, role: 2, voting: 3 };
+    if (!lines[0].includes('@')) {
+      const header = rows[0].map((h) => h.toLowerCase());
+      cols = {
+        name: header.findIndex((h) => h.includes('name')),
+        email: header.findIndex((h) => h.includes('mail')),
+        role: header.findIndex((h) => h.includes('role')),
+        voting: header.findIndex((h) => h.includes('vot')),
+      };
+      if (cols.name === -1 || cols.email === -1) {
+        return res.status(400).json({ error: 'Could not find name and email columns' });
+      }
+      rows = rows.slice(1);
+    }
+
+    const VALID = new Set(['CHAIR','SECRETARY','TREASURER','DIRECTOR','COMMITTEE_MEMBER','OBSERVER','INVITEE','GUEST','MEMBER']);
+    const truthy = (v) => /^(y|yes|true|1)$/i.test(String(v || '').trim());
+
+    let invited = 0, created = 0, skipped = 0;
+    const problems = [];
+
+    for (const row of rows) {
+      const name = row[cols.name];
+      const email = (row[cols.email] || '').toLowerCase();
+      if (!name || !email.includes('@')) { problems.push('Skipped: ' + row.join(', ').slice(0, 60)); continue; }
+
+      let user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            name,
+            email,
+            role: 'MEMBER',
+            initials: name.split(/\s+/).map((seg) => seg[0]).slice(0, 2).join('').toUpperCase(),
+          },
+        });
+        created += 1;
+      }
+
+      const existing = await prisma.invitation.findFirst({ where: { meetingId, userId: user.id } });
+      if (existing) { skipped += 1; continue; }
+
+      const roleRaw = String(row[cols.role] || '').toUpperCase().replace(/\s+/g, '_');
+      await prisma.invitation.create({
+        data: {
+          meetingId,
+          userId: user.id,
+          role: VALID.has(roleRaw) ? roleRaw : 'MEMBER',
+          votingRights: cols.voting >= 0 && row[cols.voting]
+            ? truthy(row[cols.voting])
+            : true,
+        },
+      });
+      invited += 1;
+    }
+
+    res.json({ invited, created, skipped, problems: problems.slice(0, 10) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 /** Change someone's role, voting rights or RSVP. */
 router.put('/:id', requireAdmin, async (req, res) => {
   try {

@@ -114,7 +114,11 @@ router.get('/:meetingId/received', async (req, res) => {
           }
           const latest = files.reduce((a, b) =>
             new Date(a.modifiedAt || 0) > new Date(b.modifiedAt || 0) ? a : b);
-          byNumber.set(number, { receivedAt: latest.modifiedAt, fileCount: files.length });
+          byNumber.set(number, {
+            receivedAt: latest.modifiedAt,
+            fileCount: files.length,
+            files: files.map((f) => ({ name: f.name, receivedAt: f.modifiedAt })),
+          });
         }
       }
     } else {
@@ -125,12 +129,11 @@ router.get('/:meetingId/received', async (req, res) => {
       const byItem = new Map();
       for (const d of docs) {
         const at = d.modifiedAt || d.createdAt;
-        const cur = byItem.get(d.agendaItemId);
-        if (!cur || new Date(at) > new Date(cur.receivedAt)) {
-          byItem.set(d.agendaItemId, { receivedAt: at, fileCount: (cur?.fileCount || 0) + 1 });
-        } else {
-          cur.fileCount += 1;
-        }
+        const cur = byItem.get(d.agendaItemId) || { receivedAt: at, fileCount: 0, files: [] };
+        if (new Date(at) > new Date(cur.receivedAt)) cur.receivedAt = at;
+        cur.fileCount += 1;
+        cur.files.push({ name: d.name, receivedAt: at });
+        byItem.set(d.agendaItemId, cur);
       }
       for (const item of agendaItems) {
         const hit = byItem.get(item.id);
@@ -153,6 +156,12 @@ router.get('/:meetingId/received', async (req, res) => {
           number: item.number,
           receivedAt: hit?.receivedAt || null,
           fileCount: hit?.fileCount || 0,
+          // Each report stamped individually — one item can have the
+          // executive report on time and another paper late.
+          files: (hit?.files || []).map((f) => ({
+            ...f,
+            status: receivedStatus(f.receivedAt, meeting.date, dueDays),
+          })),
           // null when nothing has arrived — "awaited" only if a folder exists.
           status: hit?.receivedAt
             ? receivedStatus(hit.receivedAt, meeting.date, dueDays)

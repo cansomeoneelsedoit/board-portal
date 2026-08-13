@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Plus, Check, X, ShieldAlert, CircleSlash, Pencil, ChevronDown, Bell, BellOff } from 'lucide-react'
-import api from '../lib/api'
+import { Plus, Check, X, ShieldAlert, CircleSlash, Pencil, ChevronDown, Bell, BellOff, FileDown } from 'lucide-react'
+import api, { apiBase } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { fmtDate, humanise } from '../lib/format'
 import { Avatar, Badge, Card, CardHeader, DataState, PageHeader, StatTile } from '../components/ui'
@@ -43,11 +43,22 @@ export default function Register() {
         title="Register of Interests"
         subtitle="Standing disclosures held by each member"
         actions={
-          canManage && (
-            <button onClick={() => setAdding((a) => !a)} className="bp-btn bp-btn-primary">
-              {adding ? <X size={15} /> : <Plus size={15} />} {adding ? 'Close' : 'Add disclosure'}
-            </button>
-          )
+          <div className="flex items-center gap-2">
+            <a
+              href={`${apiBase}/register/export.pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="bp-btn bp-btn-secondary"
+              title="The register as a PDF, in the board's own document format"
+            >
+              <FileDown size={15} /> PDF
+            </a>
+            {canManage && (
+              <button onClick={() => setAdding((a) => !a)} className="bp-btn bp-btn-primary">
+                {adding ? <X size={15} /> : <Plus size={15} />} {adding ? 'Close' : 'Add disclosure'}
+              </button>
+            )}
+          </div>
         }
       />
 
