@@ -11,6 +11,7 @@ import COI from './pages/COI'
 import Proxies from './pages/Proxies'
 import Integrations from './pages/Integrations'
 import Admin from './pages/Admin'
+import Register from './pages/Register'
 
 // Host verticals mount this app under a sub-path (e.g. /board-portal).
 const basename =
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="minutes" element={<Minutes />} />
           <Route path="attendance" element={<Attendance />} />
           <Route path="coi" element={<COI />} />
+          <Route path="register" element={<Register />} />
           <Route path="proxies" element={<Proxies />} />
           <Route path="admin" element={<Admin />} />
           <Route path="integrations" element={<Integrations />} />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { UserPlus, Trash2, Save, Users, Building2, ShieldAlert, X } from 'lucide-react'
+import { UserPlus, Trash2, Plus, Users, Building2, ShieldAlert, X } from 'lucide-react'
 import api from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { humanise } from '../lib/format'
@@ -46,7 +46,7 @@ export default function Admin() {
         title="Board setup"
         subtitle="Board details, who sits on it, and where the papers live"
       />
-      <BoardDetails />
+      <Bodies />
       <BoardMembers />
       <Directory />
       <SharePointSetup />
@@ -54,27 +54,38 @@ export default function Admin() {
   )
 }
 
-/* ------------------------------------------------------------------ board */
+/* ----------------------------------------------------------------- bodies */
 
-function BoardDetails() {
-  const { data: boards, refetch } = useApi('/boards')
-  const board = boards?.[0]
+const KINDS = [
+  { id: 'BOARD', label: 'Board' },
+  { id: 'COMMITTEE', label: 'Committee' },
+  { id: 'SUBCOMMITTEE', label: 'Sub-committee' },
+]
 
-  const [form, setForm] = useState({ name: '', description: '' })
+/**
+ * Boards and committees.
+ *
+ * A committee is a board with a parent, so one list covers both and the
+ * hierarchy is visible at a glance.
+ */
+function Bodies() {
+  const { data, loading, error, refetch } = useApi('/boards')
+  const [form, setForm] = useState({ name: '', shortName: '', kind: 'BOARD', parentId: '', description: '' })
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
+  const [busy, setBusy] = useState(null)
 
-  useEffect(() => {
-    if (board) setForm({ name: board.name || '', description: board.description || '' })
-  }, [board])
+  const bodies = data || []
+  const parents = bodies.filter((b) => b.kind === 'BOARD' || b.kind === 'COMMITTEE')
 
-  const save = async (e) => {
+  const create = async (e) => {
     e.preventDefault()
     setSaving(true)
     setNotice(null)
     try {
-      await api.put(`/boards/${board.id}`, form)
-      setNotice({ tone: 'success', text: 'Saved' })
+      await api.post('/boards', { ...form, parentId: form.parentId || null })
+      setForm({ name: '', shortName: '', kind: 'BOARD', parentId: '', description: '' })
+      setNotice({ tone: 'success', text: 'Created' })
       await refetch()
     } catch (err) {
       setNotice({ tone: 'danger', text: err.message })
@@ -83,39 +94,91 @@ function BoardDetails() {
     }
   }
 
-  if (!board) return null
+  const remove = async (body) => {
+    setBusy(body.id)
+    setNotice(null)
+    try {
+      await api.delete(`/boards/${body.id}`)
+      await refetch()
+    } catch (err) {
+      setNotice({ tone: 'danger', text: err.message })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <Card>
-      <CardHeader title={<span className="flex items-center gap-2"><Building2 size={16} /> Board details</span>} />
-      <form onSubmit={save} className="p-5 space-y-4">
-        <label className="block">
-          <span className="text-sm font-medium">Board Name</span>
-          <input
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            className="bp-input w-full mt-1"
-            required
-          />
+      <CardHeader
+        title={<span className="flex items-center gap-2"><Building2 size={16} /> Boards & committees ({bodies.length})</span>}
+        action={<span className="text-xs bp-muted">Conflicts are declared against one of these</span>}
+      />
+
+      <form onSubmit={create} className="p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end"
+        style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
+        <label className="block lg:col-span-2">
+          <span className="text-sm font-medium">Name</span>
+          <input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            className="bp-input w-full mt-1" placeholder="Audit & Risk Committee" />
         </label>
         <label className="block">
-          <span className="text-sm font-medium">Description</span>
-          <input
-            value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            className="bp-input w-full mt-1"
-            placeholder="Principal governing body. Meets monthly."
-          />
+          <span className="text-sm font-medium">Short name</span>
+          <input value={form.shortName} onChange={(e) => setForm((f) => ({ ...f, shortName: e.target.value }))}
+            className="bp-input w-full mt-1" placeholder="ARC" />
         </label>
-        <div className="flex items-center gap-3">
-          <button type="submit" disabled={saving} className="bp-btn bp-btn-primary">
-            <Save size={15} /> {saving ? 'Saving…' : 'Save'}
-          </button>
-          {notice && (
-            <span className="text-sm" style={{ color: `var(--bp-${notice.tone}-fg)` }}>{notice.text}</span>
-          )}
-        </div>
+        <label className="block">
+          <span className="text-sm font-medium">Type</span>
+          <select value={form.kind} onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value }))}
+            className="bp-input w-full mt-1">
+            {KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+          </select>
+        </label>
+        {form.kind !== 'BOARD' ? (
+          <label className="block">
+            <span className="text-sm font-medium">Reports to</span>
+            <select required value={form.parentId} onChange={(e) => setForm((f) => ({ ...f, parentId: e.target.value }))}
+              className="bp-input w-full mt-1">
+              <option value="">Choose…</option>
+              {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+        ) : <div />}
+        <button type="submit" disabled={saving} className="bp-btn bp-btn-primary lg:col-start-5">
+          <Plus size={15} /> {saving ? 'Creating…' : 'Create'}
+        </button>
       </form>
+
+      {notice && (
+        <p className="px-4 pt-3 text-sm" style={{ color: `var(--bp-${notice.tone}-fg)` }}>{notice.text}</p>
+      )}
+
+      <DataState loading={loading} error={error}
+        empty={!loading && !error && bodies.length === 0}
+        emptyLabel="No boards or committees yet" onRetry={refetch} />
+
+      {bodies.length > 0 && (
+        <div className="bp-divide">
+          {bodies.map((b) => (
+            <div key={b.id} className="p-3 flex items-center gap-3">
+              <span className="bp-chip bp-chip--primary w-8 h-8 shrink-0 text-xs font-semibold">
+                {(b.shortName || b.name).slice(0, 3).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">{b.name}</p>
+                <p className="text-xs bp-muted truncate">
+                  {humanise(b.kind)}
+                  {b.parent ? ` · reports to ${b.parent.name}` : ''}
+                  {` · ${b.meetingCount} meeting${b.meetingCount === 1 ? '' : 's'}`}
+                </p>
+              </div>
+              <button onClick={() => remove(b)} disabled={busy === b.id}
+                className="bp-subtle hover:text-[var(--bp-danger-fg)] p-1.5" title="Remove">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   )
 }

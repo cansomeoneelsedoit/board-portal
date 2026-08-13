@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Calendar, FolderOpen, Settings, ShieldCheck,
+  LayoutDashboard, Calendar, FolderOpen, Settings, ShieldCheck, ShieldAlert,
 } from 'lucide-react'
 
 /**
@@ -21,6 +21,7 @@ export const navGroups = [
       { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/meetings',  icon: Calendar,        label: 'Meetings' },
       { to: '/documents', icon: FolderOpen,      label: 'Library' },
+      { to: '/register',  icon: ShieldAlert,    label: 'Register of Interests' },
     ],
   },
   {

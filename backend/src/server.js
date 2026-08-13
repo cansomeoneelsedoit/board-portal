@@ -53,6 +53,7 @@ api.use('/votes', require('./routes/votes'));
 api.use('/attendance', require('./routes/attendance'));
 api.use('/minutes', require('./routes/minutes'));
 api.use('/coi', require('./routes/coi'));
+api.use('/register', require('./routes/register'));
 api.use('/proxies', require('./routes/proxies'));
 api.use('/integrations', require('./routes/integrations'));
 api.use('/audit', require('./routes/audit'));

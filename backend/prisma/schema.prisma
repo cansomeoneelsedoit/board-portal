@@ -25,12 +25,29 @@ model User {
   proxiesFrom   Proxy[]  @relation("ProxyFrom")
   proxiesTo     Proxy[]  @relation("ProxyTo")
   approvals     MinutesApproval[]
+  interests     MemberInterest[]
 }
 
+/// A board, committee or sub-committee.
+///
+/// Committees are boards with a parent — same fields, same meetings, same
+/// register — because a committee runs on the same rules and its conflicts are
+/// declared the same way. Modelling them as a separate thing would duplicate
+/// all of it for no gain.
 model Board {
   id          String   @id @default(uuid())
   name        String
   description String?
+
+  /// BOARD | COMMITTEE | SUBCOMMITTEE
+  kind        String   @default("BOARD")
+  /// The body this one reports to, when it is a committee.
+  parentId    String?
+  parent      Board?   @relation("BoardHierarchy", fields: [parentId], references: [id])
+  children    Board[]  @relation("BoardHierarchy")
+
+  /// Shown against declarations, e.g. "Audit & Risk Committee".
+  shortName   String?
   // Tenant seam: when this app runs as a module inside a MasonsView/HotelView
   // vertical, orgKey holds the host organisation/hotel identifier so boards can
   // be scoped per tenant. Null when running standalone.
@@ -199,17 +216,89 @@ model Vote {
   user      User   @relation(fields: [userId], references: [id])
 }
 
+/// A standing entry in the register of interests.
+///
+/// Modelled on the AF&AM Inc register: one row per interest per member —
+/// lodges, directorships, committee seats, employment — carried forward
+/// between meetings and reviewed when it changes. This is NOT a per-meeting
+/// declaration; that is the COI model below. A member typically has several of
+/// these and declares against them when a relevant item arises.
+model MemberInterest {
+  id          String   @id @default(uuid())
+  userId      String
+  /// The body the register belongs to.
+  boardId     String?
+
+  /// The interest itself, e.g. "Director, Freemasons Property Pty Ltd".
+  interest    String
+  /// MATERIAL_PERSONAL | PECUNIARY | PERCEIVED | DUTY_TO_DUTY | INDIRECT
+  category    String   @default("DUTY_TO_DUTY")
+
+  /// "Has the board been notified?" — the register's own column.
+  notified    Boolean  @default(false)
+  notifiedAt  DateTime?
+
+  /// The two narrative columns the register carries.
+  boardSteps    String?
+  memberActions String?
+
+  /// ACTIVE while it stands; ENDED once the member leaves the position, which
+  /// keeps the history rather than deleting it.
+  status      String   @default("ACTIVE")
+  endedAt     DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([boardId])
+  @@index([status])
+}
+
+/// A declared interest, and what the meeting resolved about it.
+///
+/// Following ordinary Australian meeting practice (Joske's): an interest is
+/// DECLARED by the member and minuted; the meeting then RESOLVES what follows.
+/// Those are two separate facts, so they are two separate fields — a
+/// declaration that has not yet been ruled on is a real and common state, and
+/// collapsing them into one "effect" column loses the distinction.
 model COI {
   id          String   @id @default(uuid())
   meetingId   String
   userId      String
   motionId    String?
+
+  /// Which board or committee the interest concerns. Null for legacy rows.
+  boardId     String?
+
+  /// Nature of the interest: MATERIAL_PERSONAL | PECUNIARY | PERCEIVED |
+  /// DUTY_TO_DUTY | INDIRECT
   type        String
   description String
-  effect      String   @default("ABSTAIN")
+
+  /// What the meeting resolved. PENDING until it rules.
+  ///   PENDING          declared, not yet ruled on
+  ///   NOT_A_CONFLICT   meeting resolved no material conflict arises
+  ///   REMAIN_AND_VOTE  meeting consented to the member remaining and voting
+  ///   REMAIN_NO_VOTE   remains present, does not vote
+  ///   WITHDRAW         withdraws for the item and does not vote
+  effect      String   @default("PENDING")
+
+  /// How the meeting dealt with it, for the minutes.
+  resolution  String?
+  resolvedAt  DateTime?
+  /// Joske's point: if interested members withdraw, quorum may fail for that
+  /// item. Recording it makes the risk visible rather than discovered later.
+  quorumAffected Boolean @default(false)
+
   declaredAt  DateTime @default(now())
-  
-  user        User @relation(fields: [userId], references: [id])
+
+  user        User  @relation(fields: [userId], references: [id])
+
+  @@index([meetingId])
+  @@index([boardId])
 }
 
 model Proxy {
