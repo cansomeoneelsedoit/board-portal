@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Check, X, ShieldAlert, CircleSlash, Pencil } from 'lucide-react'
+import { Plus, Check, X, ShieldAlert, CircleSlash, Pencil, ChevronDown } from 'lucide-react'
 import api from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { fmtDate, humanise } from '../lib/format'
@@ -96,6 +96,9 @@ export default function Register() {
 
 function MemberBlock({ member, canManage, onChange }) {
   const [busy, setBusy] = useState(null)
+  // Accordion: the register is long (a dozen members, ~90 interests), so each
+  // member starts collapsed and opens on click.
+  const [open, setOpen] = useState(false)
 
   const setNotified = async (interest, notified) => {
     setBusy(interest.id)
@@ -119,20 +122,36 @@ function MemberBlock({ member, canManage, onChange }) {
 
   return (
     <Card>
-      <CardHeader
-        title={
-          <span className="flex items-center gap-2.5">
-            <Avatar name={member.member} initials={member.initials} size={28} />
-            {member.member}
+      {/* The whole header is the toggle — clicking the person opens them up. */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full px-5 py-4 flex items-center justify-between gap-3 text-left transition-colors hover:bg-[var(--bp-neutral-bg)]"
+        style={open ? { borderBottom: '1px solid var(--bp-card-border)' } : undefined}
+      >
+        <span className="flex items-center gap-2.5 min-w-0">
+          <Avatar name={member.member} initials={member.initials} size={28} />
+          <span className="min-w-0">
+            <span className="block font-semibold text-sm truncate">{member.member}</span>
+            <span className="block text-xs bp-muted">
+              {member.interests.length} interest{member.interests.length === 1 ? '' : 's'} disclosed
+            </span>
           </span>
-        }
-        action={
-          member.notified
+        </span>
+        <span className="flex items-center gap-2 shrink-0">
+          {member.notified
             ? <Badge tone="success">Board notified</Badge>
-            : <Badge tone="warning">Notification outstanding</Badge>
-        }
-      />
+            : <Badge tone="warning">Notification outstanding</Badge>}
+          <ChevronDown
+            size={16}
+            className="bp-subtle transition-transform duration-200"
+            style={open ? { transform: 'rotate(180deg)' } : undefined}
+          />
+        </span>
+      </button>
 
+      {open && (
       <div className="overflow-x-auto">
         <table className="bp-table">
           <thead>
@@ -195,8 +214,9 @@ function MemberBlock({ member, canManage, onChange }) {
           </tbody>
         </table>
       </div>
+      )}
 
-      {(member.interests[0]?.boardSteps || member.interests[0]?.memberActions) && (
+      {open && (member.interests[0]?.boardSteps || member.interests[0]?.memberActions) && (
         <div className="p-4 grid gap-4 sm:grid-cols-2" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
           {member.interests[0]?.boardSteps && (
             <div>
