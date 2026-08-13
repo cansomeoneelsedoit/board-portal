@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Check, X, ShieldAlert, CircleSlash, Pencil, ChevronDown } from 'lucide-react'
+import { Plus, Check, X, ShieldAlert, CircleSlash, Pencil, ChevronDown, Bell, BellOff } from 'lucide-react'
 import api from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { fmtDate, humanise } from '../lib/format'
@@ -265,24 +265,27 @@ function MemberBlock({ member, canManage, onChange }) {
                         onClick={() => startEdit(i)}
                         disabled={busy === i.id}
                         className="bp-subtle hover:text-[var(--bp-fg)] p-1.5"
-                        title="Edit the wording"
+                        title="Edit the wording and which boards it is disclosed to"
                       >
                         <Pencil size={14} />
                       </button>
                       <button
                         onClick={() => setNotified(i, !i.notified)}
                         disabled={busy === i.id}
-                        className="bp-subtle hover:text-[var(--bp-fg)] p-1.5"
-                        title={i.notified ? 'Mark not notified' : 'Mark board notified'}
+                        className="p-1.5"
+                        style={{ color: i.notified ? 'var(--bp-success-fg)' : 'var(--bp-warning-fg)' }}
+                        title={i.notified
+                          ? 'Board has been notified — click to mark as not notified'
+                          : 'Board NOT yet notified — click to mark as notified'}
                       >
-                        <Pencil size={14} />
+                        {i.notified ? <Bell size={14} /> : <BellOff size={14} />}
                       </button>
                       {i.status !== 'ENDED' && (
                         <button
                           onClick={() => end(i)}
                           disabled={busy === i.id}
                           className="bp-subtle hover:text-[var(--bp-danger-fg)] p-1.5"
-                          title="Position ended — keep on the record"
+                          title="Position ended — keeps the entry on the record, greyed"
                         >
                           <CircleSlash size={14} />
                         </button>
