@@ -6,6 +6,7 @@ import { humanise } from '../lib/format'
 import { Avatar, Badge, Card, CardHeader, DataState, PageHeader } from '../components/ui'
 import MemberSearch from '../components/MemberSearch'
 import SharePointSetup from '../components/SharePointSetup'
+import BoardPackBrowser from '../components/BoardPackBrowser'
 import { useSession } from '../lib/useSession'
 
 const BOARD_ROLES = ['CHAIR', 'SECRETARY', 'TREASURER', 'DIRECTOR', 'COMMITTEE_MEMBER', 'OBSERVER', 'INVITEE', 'GUEST']
@@ -25,7 +26,7 @@ export default function Admin() {
   if (!capabilities?.manageMeetings) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Board setup" />
+        <PageHeader title="Board Settings" />
         <Card className="p-6 flex items-start gap-3">
           <span className="bp-chip bp-chip--warning w-10 h-10 shrink-0"><ShieldAlert size={18} /></span>
           <div className="text-sm">
@@ -43,12 +44,19 @@ export default function Admin() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Board setup"
+        title="Board Settings"
         subtitle="Board details, who sits on it, and where the papers live"
       />
       <Bodies />
       <BoardMembers />
       <Directory />
+      <Card>
+        <CardHeader
+          title="Library"
+          action={<span className="text-xs bp-muted">The whole SharePoint library — members see packs per meeting</span>}
+        />
+        <BoardPackBrowser emptyLabel="Link a SharePoint folder below to browse the library" />
+      </Card>
       <SharePointSetup />
     </div>
   )

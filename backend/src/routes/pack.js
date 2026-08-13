@@ -5,6 +5,7 @@ const sp = require('../lib/graph/sharepoint');
 const { getGraphToken } = require('../lib/graph/auth');
 const {
   meetingFolderName, matchMeetingFolder, agendaNumberFromFolderName, receivedStatus,
+  agendaItemFromFolderName,
 } = require('../lib/board-pack');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
 const { requireAdmin } = require('../lib/session');
@@ -170,6 +171,80 @@ router.get('/:meetingId/received', async (req, res) => {
         };
       }),
     });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/**
+ * Build (or refresh) the agenda from the pack's numbered folders.
+ *
+ * "03 Conflict of Interest" becomes item 3; "10.01 Grand Registrar" item
+ * 10.01. Each generated item remembers its folder, so re-syncing after a
+ * rename updates the item, and a deleted folder removes it. Items added by
+ * hand carry no folder and are never touched — the two ways of building an
+ * agenda coexist on one meeting.
+ */
+router.post('/:meetingId/sync-agenda', requireAdmin, async (req, res) => {
+  try {
+    const meeting = await loadMeeting(req.params.meetingId);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const driveId = meeting.sharepointDriveId || meeting.board?.sharepointDriveId;
+    let folderId = meeting.sharepointFolderId;
+    const { token } = await getGraphToken();
+
+    if (!folderId && meeting.board?.sharepointDriveId && meeting.board?.sharepointFolderId) {
+      const children = await sp.listChildren(token, meeting.board.sharepointDriveId, meeting.board.sharepointFolderId);
+      folderId = matchMeetingFolder(children.filter((c) => c.isFolder), meeting)?.id || null;
+    }
+    if (!driveId || !folderId) {
+      return res.status(400).json({ error: 'Link this meeting to its pack folder first (Edit Meeting)' });
+    }
+
+    const entries = (await sp.listChildren(token, driveId, folderId)).filter((e) => e.isFolder);
+    const existing = await prisma.agendaItem.findMany({ where: { meetingId: meeting.id } });
+    const bySource = new Map(existing.filter((i) => i.sourceFolderId).map((i) => [i.sourceFolderId, i]));
+
+    let created = 0;
+    let updated = 0;
+    const seen = new Set();
+
+    for (const entry of entries) {
+      const parsed = agendaItemFromFolderName(entry.name);
+      if (!parsed) continue; // unnumbered folders are reference material
+      seen.add(entry.id);
+
+      const prior = bySource.get(entry.id);
+      if (prior) {
+        if (prior.number !== parsed.number || prior.title !== parsed.title || prior.order !== parsed.sort) {
+          await prisma.agendaItem.update({
+            where: { id: prior.id },
+            data: { number: parsed.number, title: parsed.title, order: parsed.sort },
+          });
+          updated += 1;
+        }
+      } else {
+        await prisma.agendaItem.create({
+          data: {
+            meetingId: meeting.id,
+            sourceFolderId: entry.id,
+            number: parsed.number,
+            title: parsed.title,
+            order: parsed.sort,
+          },
+        });
+        created += 1;
+      }
+    }
+
+    // Folder gone → its derived item goes; hand-made items are untouched.
+    const stale = existing.filter((i) => i.sourceFolderId && !seen.has(i.sourceFolderId));
+    if (stale.length) {
+      await prisma.agendaItem.deleteMany({ where: { id: { in: stale.map((i) => i.id) } } });
+    }
+
+    res.json({ created, updated, removed: stale.length, followed: entries.length });
   } catch (error) {
     handle(res, error);
   }

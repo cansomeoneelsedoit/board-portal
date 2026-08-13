@@ -27,10 +27,7 @@ export const navGroups = [
     label: 'Administration',
     admin: true,
     items: [
-      // The whole-library browser is a secretary's tool - members reach their
-      // papers through each meeting's Board pack tab.
-      { to: '/documents',    icon: FolderOpen,  label: 'Library', admin: true },
-      { to: '/admin',        icon: ShieldCheck, label: 'Board setup', admin: true },
+      { to: '/admin',        icon: ShieldCheck, label: 'Board Settings', admin: true },
       { to: '/integrations', icon: Settings,    label: 'Integrations', admin: true },
     ],
   },

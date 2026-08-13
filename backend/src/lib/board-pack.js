@@ -182,5 +182,6 @@ module.exports = {
   meetingFolderName,
   isReferenceFolder,
   agendaNumberFromFolderName,
+  agendaItemFromFolderName,
   receivedStatus,
 };

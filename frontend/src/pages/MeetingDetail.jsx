@@ -106,7 +106,7 @@ export default function MeetingDetail() {
           what was declared, what was resolved. These used to be separate
           top-level registers, which made one meeting read as six unrelated
           lists. */}
-      <MeetingTabs meeting={meeting} received={received} declarations={declarations} />
+      <MeetingTabs meeting={meeting} received={received} declarations={declarations} onChanged={refetch} />
 
     </div>
   )

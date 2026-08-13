@@ -21,7 +21,7 @@ import AttendanceRoll from './AttendanceRoll'
  * what was declared and what was resolved all belong to the same sitting, so
  * they are tabs of one page rather than separate destinations.
  */
-export default function MeetingTabs({ meeting, received, declarations }) {
+export default function MeetingTabs({ meeting, received, declarations, onChanged }) {
   const [tab, setTab] = useState('agenda')
 
   const attendances = meeting.attendances || []
@@ -83,7 +83,13 @@ export default function MeetingTabs({ meeting, received, declarations }) {
 
       {tab === 'agenda' && (
         <div className="p-4">
-          <AgendaPanel agenda={agenda} received={received} declarations={declarations} />
+          <AgendaPanel
+            meeting={meeting}
+            agenda={agenda}
+            received={received}
+            declarations={declarations}
+            onChanged={onChanged}
+          />
         </div>
       )}
 
@@ -206,26 +212,181 @@ export default function MeetingTabs({ meeting, received, declarations }) {
  * The agenda, first among the tabs: numbered items, each paper stamped for
  * when it arrived, and any conflict pinned to the item warned right on it.
  */
-function AgendaPanel({ agenda, received, declarations }) {
-  if (!agenda.length) {
-    return <DataState empty emptyLabel="No agenda items — sync from the pack or add them by hand" />
+function AgendaPanel({ meeting, agenda, received, declarations, onChanged }) {
+  const { capabilities } = useSession()
+  const canEdit = capabilities?.manageMeetings
+  const [busy, setBusy] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const [editingId, setEditingId] = useState(null)
+  const [draft, setDraft] = useState({})
+  const [adding, setAdding] = useState(false)
+  const [addForm, setAddForm] = useState({ number: '', title: '', presenter: '', duration: '' })
+
+  const sorted = [...agenda].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+  const syncFromPack = async () => {
+    setBusy('sync')
+    setNotice(null)
+    try {
+      const { data } = await api.post(`/pack/${meeting.id}/sync-agenda`, {})
+      setNotice({ tone: 'success',
+        text: `Agenda synced from the pack: ${data.created} added, ${data.updated} updated, ${data.removed} removed.` })
+      await onChanged?.()
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
   }
+
+  const move = async (index, dir) => {
+    const a = sorted[index]
+    const b = sorted[index + dir]
+    if (!a || !b) return
+    setBusy(a.id)
+    try {
+      const aOrder = a.order ?? index
+      const bOrder = b.order ?? index + dir
+      await api.put(`/agenda/${a.id}`, { order: bOrder })
+      await api.put(`/agenda/${b.id}`, { order: aOrder })
+      await onChanged?.()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const saveEdit = async (item) => {
+    setBusy(item.id)
+    try {
+      await api.put(`/agenda/${item.id}`, {
+        number: draft.number,
+        title: draft.title,
+        presenter: draft.presenter || null,
+        duration: draft.duration ? Number(draft.duration) : null,
+      })
+      setEditingId(null)
+      await onChanged?.()
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const removeItem = async (item) => {
+    setBusy(item.id)
+    try {
+      await api.delete(`/agenda/${item.id}`)
+      await onChanged?.()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const addItem = async (e) => {
+    e.preventDefault()
+    setBusy('add')
+    try {
+      const maxOrder = Math.max(0, ...sorted.map((i) => i.order ?? 0))
+      await api.post('/agenda', {
+        meetingId: meeting.id,
+        number: addForm.number || String(sorted.length + 1),
+        title: addForm.title,
+        presenter: addForm.presenter || null,
+        duration: addForm.duration ? Number(addForm.duration) : null,
+        order: maxOrder + 1,
+      })
+      setAddForm({ number: '', title: '', presenter: '', duration: '' })
+      setAdding(false)
+      await onChanged?.()
+    } catch (e2) {
+      setNotice({ tone: 'danger', text: e2.message })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
-    <div className="bp-divide">
-      {agenda.map((item) => {
+    <div className="space-y-3">
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setAdding((a) => !a)} className="bp-btn bp-btn-primary">
+            {adding ? 'Close' : 'Add item'}
+          </button>
+          <button onClick={syncFromPack} disabled={busy === 'sync'} className="bp-btn bp-btn-secondary"
+            title="Build the agenda from the pack's numbered folders — rename a folder and re-sync, the item follows">
+            {busy === 'sync' ? 'Syncing…' : 'Sync from pack'}
+          </button>
+          <span className="text-xs bp-muted">
+            Synced items follow their folder; hand-made items are never touched by a sync.
+          </span>
+        </div>
+      )}
+
+      {adding && (
+        <form onSubmit={addItem} className="bp-card p-3 grid gap-2 sm:grid-cols-[4.5rem_1fr_10rem_5rem_auto] sm:items-end">
+          <label className="block"><span className="text-xs bp-muted">No.</span>
+            <input value={addForm.number} onChange={(e) => setAddForm((f) => ({ ...f, number: e.target.value }))}
+              placeholder="7 or 10.01" className="bp-input w-full mt-1" /></label>
+          <label className="block"><span className="text-xs bp-muted">Title</span>
+            <input required value={addForm.title} onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
+              className="bp-input w-full mt-1" /></label>
+          <label className="block"><span className="text-xs bp-muted">Presenter</span>
+            <input value={addForm.presenter} onChange={(e) => setAddForm((f) => ({ ...f, presenter: e.target.value }))}
+              className="bp-input w-full mt-1" /></label>
+          <label className="block"><span className="text-xs bp-muted">Min</span>
+            <input type="number" min="0" value={addForm.duration}
+              onChange={(e) => setAddForm((f) => ({ ...f, duration: e.target.value }))} className="bp-input w-full mt-1" /></label>
+          <button type="submit" disabled={busy === 'add'} className="bp-btn bp-btn-primary">Add</button>
+        </form>
+      )}
+
+      {notice && <p className="text-sm" style={{ color: `var(--bp-${notice.tone}-fg)` }}>{notice.text}</p>}
+
+      {!sorted.length && (
+        <DataState empty emptyLabel="No agenda items — sync from the pack or add them by hand" />
+      )}
+
+      <div className="bp-divide">
+      {sorted.map((item, index) => {
         const stampInfo = received?.items?.find((r) => r.agendaItemId === item.id)
         const itemConflicts = (declarations || []).filter((d) => d.agendaItemId === item.id)
+        const isEditing = editingId === item.id
         return (
           <div key={item.id} className="py-3 flex items-start gap-3">
             <span className="bp-chip bp-chip--primary w-10 h-7 shrink-0 text-xs font-semibold">
               {item.number}
             </span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">{item.title}</p>
-              <p className="text-xs bp-muted mt-0.5">
-                {item.presenter || 'No presenter'}
-                {item.duration ? ` · ${item.duration} min` : ''}
-              </p>
+              {isEditing ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <input value={draft.number} onChange={(e) => setDraft((d) => ({ ...d, number: e.target.value }))}
+                    className="bp-input text-sm py-1 w-20" title="Number" />
+                  <input value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                    className="bp-input text-sm py-1 flex-1 min-w-[12rem]" title="Title" />
+                  <input value={draft.presenter || ''} onChange={(e) => setDraft((d) => ({ ...d, presenter: e.target.value }))}
+                    placeholder="Presenter" className="bp-input text-sm py-1 w-36" />
+                  <input type="number" min="0" value={draft.duration || ''} placeholder="min"
+                    onChange={(e) => setDraft((d) => ({ ...d, duration: e.target.value }))} className="bp-input text-sm py-1 w-16" />
+                  <button onClick={() => saveEdit(item)} disabled={busy === item.id} className="bp-btn bp-btn-primary"><Check size={13} /></button>
+                  <button onClick={() => setEditingId(null)} className="bp-subtle p-1"><X size={13} /></button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">
+                    {item.title}
+                    {item.sourceFolderId && (
+                      <span className="bp-badge bp-badge--info ml-2" title="Built from the pack — re-sync after the folder changes">
+                        follows the pack
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs bp-muted mt-0.5">
+                    {item.presenter || 'No presenter'}
+                    {item.duration ? ` · ${item.duration} min` : ''}
+                  </p>
+                </>
+              )}
 
               {(item.documents || []).length > 0 && (
                 <div className="mt-2 space-y-1">
@@ -256,9 +417,23 @@ function AgendaPanel({ agenda, received, declarations }) {
                 </div>
               ))}
             </div>
+
+            {canEdit && !isEditing && (
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button onClick={() => move(index, -1)} disabled={index === 0 || busy}
+                  className="bp-subtle hover:text-[var(--bp-fg)] p-1" title="Move up">↑</button>
+                <button onClick={() => move(index, 1)} disabled={index === sorted.length - 1 || busy}
+                  className="bp-subtle hover:text-[var(--bp-fg)] p-1" title="Move down">↓</button>
+                <button onClick={() => { setEditingId(item.id); setDraft({ number: item.number, title: item.title, presenter: item.presenter, duration: item.duration }) }}
+                  className="bp-subtle hover:text-[var(--bp-fg)] p-1" title="Edit item">✎</button>
+                <button onClick={() => removeItem(item)} disabled={busy === item.id}
+                  className="bp-subtle hover:text-[var(--bp-danger-fg)] p-1" title="Remove item">✕</button>
+              </div>
+            )}
           </div>
         )
       })}
+      </div>
     </div>
   )
 }
