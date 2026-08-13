@@ -296,8 +296,10 @@ router.post('/pack/:meetingId', requireAdmin, async (req, res) => {
     if (url) {
       resolved = await sp.resolveShareUrl(token, url);
     } else if (folderId) {
-      const f = await sp.getFolderDetails(token, meeting.board.sharepointDriveId, folderId);
-      resolved = { folderId: f.id, webUrl: f.webUrl };
+      const driveId = req.body?.driveId || meeting.board?.sharepointDriveId;
+      if (!driveId) return res.status(400).json({ error: 'No drive to resolve that folder in' });
+      const f = await sp.getFolderDetails(token, driveId, folderId);
+      resolved = { driveId, folderId: f.id, webUrl: f.webUrl };
     } else {
       return res.status(400).json({ error: 'Provide a folder url or folderId' });
     }
@@ -305,12 +307,26 @@ router.post('/pack/:meetingId', requireAdmin, async (req, res) => {
     const updated = await prisma.meeting.update({
       where: { id: meeting.id },
       data: {
+        sharepointDriveId: resolved.driveId || null,
         sharepointFolderId: resolved.folderId,
         sharepointWebUrl: resolved.webUrl,
       },
     });
 
     res.json({ meetingId: updated.id, folderId: updated.sharepointFolderId });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/** Unpin a meeting's pack folder. Files in SharePoint are untouched. */
+router.delete('/pack/:meetingId', requireAdmin, async (req, res) => {
+  try {
+    await prisma.meeting.update({
+      where: { id: req.params.meetingId },
+      data: { sharepointDriveId: null, sharepointFolderId: null, sharepointWebUrl: null },
+    });
+    res.json({ unpinned: true });
   } catch (error) {
     handle(res, error);
   }

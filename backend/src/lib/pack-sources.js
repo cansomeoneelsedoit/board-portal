@@ -36,7 +36,10 @@ function effectiveSource(meeting, board) {
 /* ------------------------------------------------------------- sharepoint */
 
 async function sharepointPack(meeting, board, folderId) {
-  if (!board?.sharepointDriveId) {
+  // A meeting pinned by URL carries its own drive and works without any
+  // board-level library link.
+  const driveId = meeting.sharepointDriveId || board?.sharepointDriveId;
+  if (!driveId) {
     return {
       source: 'SHAREPOINT',
       configured: false,
@@ -53,8 +56,8 @@ async function sharepointPack(meeting, board, folderId) {
   let folder = null;
 
   if (target) {
-    folder = await sp.getFolderDetails(token, board.sharepointDriveId, target);
-  } else {
+    folder = await sp.getFolderDetails(token, driveId, target);
+  } else if (board?.sharepointDriveId && board?.sharepointFolderId) {
     const children = await sp.listChildren(token, board.sharepointDriveId, board.sharepointFolderId);
     folder = matchMeetingFolder(children.filter((c) => c.isFolder), meeting);
     target = folder?.id || null;
@@ -77,7 +80,7 @@ async function sharepointPack(meeting, board, folderId) {
     source: 'SHAREPOINT',
     configured: true,
     folder: { id: folder.id, name: folder.name, webUrl: folder.webUrl },
-    items: await sp.listChildren(token, board.sharepointDriveId, target),
+    items: await sp.listChildren(token, driveId, target),
     canUpload: true,
   };
 }

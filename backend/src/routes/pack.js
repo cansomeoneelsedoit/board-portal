@@ -94,19 +94,20 @@ router.get('/:meetingId/received', async (req, res) => {
 
     const source = packs.effectiveSource(meeting, meeting.board);
 
-    if (source === 'SHAREPOINT' && board?.sharepointDriveId) {
+    const meetingDriveId = meeting.sharepointDriveId || board?.sharepointDriveId;
+    if (source === 'SHAREPOINT' && meetingDriveId) {
       const { token } = await getGraphToken();
       let folderId = meeting.sharepointFolderId;
-      if (!folderId) {
+      if (!folderId && board?.sharepointDriveId && board?.sharepointFolderId) {
         const children = await sp.listChildren(token, board.sharepointDriveId, board.sharepointFolderId);
         folderId = matchMeetingFolder(children.filter((c) => c.isFolder), meeting)?.id || null;
       }
       if (folderId) {
-        const entries = await sp.listChildren(token, board.sharepointDriveId, folderId);
+        const entries = await sp.listChildren(token, meetingDriveId, folderId);
         for (const entry of entries.filter((e) => e.isFolder)) {
           const number = agendaNumberFromFolderName(entry.name);
           if (number === null) continue;
-          const files = (await sp.listChildren(token, board.sharepointDriveId, entry.id))
+          const files = (await sp.listChildren(token, meetingDriveId, entry.id))
             .filter((f) => !f.isFolder);
           if (!files.length) {
             if (!byNumber.has(number)) byNumber.set(number, { receivedAt: null, fileCount: 0 });
@@ -233,7 +234,23 @@ router.post('/:meetingId/upload', requireAdmin, async (req, res) => {
     if (!file) return res.status(400).json({ error: 'No file uploaded (expected field "file")' });
 
     const source = packs.effectiveSource(meeting, meeting.board);
-    const { name, tags, agendaItemId, relativePath } = req.body || {};
+    let { name, tags, agendaItemId, relativePath } = req.body || {};
+
+    // A paper tabled on the floor (or uploaded with no agenda item) is business
+    // arising on the day — it files under General business / Any other
+    // business, where the meeting will actually address it.
+    if (!agendaItemId && /\btabled\b/i.test(tags || '')) {
+      const aob = await prisma.agendaItem.findFirst({
+        where: {
+          meetingId: meeting.id,
+          OR: [
+            { title: { contains: 'General business', mode: 'insensitive' } },
+            { title: { contains: 'other business', mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (aob) agendaItemId = aob.id;
+    }
 
     if (source === 'LOCAL') {
       const document = await packs.saveLocalUpload(meeting, file, {

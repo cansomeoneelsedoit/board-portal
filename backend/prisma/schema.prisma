@@ -110,6 +110,9 @@ model Meeting {
 
   // Board pack folder in SharePoint. Optional: when unset the pack is found by
   // looking for a sub-folder named after the meeting under the board's root.
+  // The drive id makes a meeting's pin self-sufficient — a pasted URL works
+  // even when the board has no library linked at all.
+  sharepointDriveId  String?
   sharepointFolderId String?
   sharepointWebUrl   String?
 

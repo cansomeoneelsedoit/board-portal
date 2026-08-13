@@ -5,6 +5,7 @@ import api, { endpoints } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { fmtDateTime } from '../lib/format'
 import { Badge, Card, DataState, PageHeader } from '../components/ui'
+import PackFolderField from '../components/PackFolderField'
 
 const FILTERS = [
   { id: 'all',       label: 'All' },
@@ -221,6 +222,8 @@ function NewMeetingModal({ onClose, onCreated }) {
     secretaryExOfficio: true,
   })
   const [proxiesAllowed, setProxiesAllowed] = useState(true)
+  // Direct link to this meeting's SharePoint pack folder, set at scheduling.
+  const [packUrl, setPackUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -233,7 +236,7 @@ function NewMeetingModal({ onClose, onCreated }) {
     setSaving(true)
     setErr(null)
     try {
-      await api.post(endpoints.meetings(), {
+      const { data: createdMeeting } = await api.post(endpoints.meetings(), {
         boardId,
         title: form.title,
         date: new Date(`${form.date}T${form.time || '00:00'}`).toISOString(),
@@ -248,6 +251,17 @@ function NewMeetingModal({ onClose, onCreated }) {
         quorumExOfficioRoles: quorum.secretaryExOfficio ? 'SECRETARY' : '',
         proxiesAllowed,
       })
+      // Pin the pack folder to the new meeting. A bad URL should not lose the
+      // meeting that was just created - report it and let Edit fix the link.
+      if (packUrl.trim()) {
+        try {
+          await api.post(`/sharepoint/pack/${createdMeeting.id}`, { url: packUrl.trim() })
+        } catch (e3) {
+          setErr(`Meeting created, but the pack folder link failed: ${e3.message}. Set it via Edit.`)
+          setSaving(false)
+          return
+        }
+      }
       onCreated()
     } catch (e2) {
       setErr(e2.message)
@@ -271,6 +285,8 @@ function NewMeetingModal({ onClose, onCreated }) {
             <input required value={form.title} onChange={set('title')} className="bp-input w-full mt-1"
               placeholder="e.g. Board Meeting - Q3 Review" />
           </label>
+
+          <PackFolderField value={packUrl} onChange={setPackUrl} />
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
