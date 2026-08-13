@@ -313,6 +313,7 @@ function ConflictAlerts({ meetingId }) {
  */
 function ProxiesPanel({ meeting }) {
   const { data, loading, error, refetch } = useApi(`/proxies?meetingId=${encodeURIComponent(meeting.id)}`)
+  const { data: knownEntities } = useApi('/proxies/entities')
   const { capabilities } = useSession()
   // The grantor is a member on the list, or an entity - lodge, company,
   // association - recorded by name, as the FF count sheets are kept.
@@ -403,8 +404,24 @@ function ProxiesPanel({ meeting }) {
               <>
                 <label className="block">
                   <span className="text-xs font-medium bp-muted">Entity name</span>
-                  <input value={entityName} onChange={(e) => setEntityName(e.target.value)}
-                    placeholder="Lodge Reynell 243" className="bp-input w-56 mt-1" />
+                  <input
+                    value={entityName}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setEntityName(v)
+                      // Picking a known entity carries its kind across.
+                      const hit = (knownEntities || []).find((k) => k.name.toLowerCase() === v.toLowerCase())
+                      if (hit) setEntityKind(hit.kind)
+                    }}
+                    list="known-entities"
+                    placeholder="Choose from the list or type a new one"
+                    className="bp-input w-64 mt-1"
+                  />
+                  <datalist id="known-entities">
+                    {(knownEntities || []).map((k) => (
+                      <option key={k.name} value={k.name}>{k.kind.toLowerCase()}</option>
+                    ))}
+                  </datalist>
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium bp-muted">Kind</span>

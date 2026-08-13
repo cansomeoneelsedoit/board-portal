@@ -39,6 +39,45 @@ router.get('/', async (req, res) => {
   }
 });
 
+/**
+ * Names to offer in the entity picker: every board, committee and lodge known
+ * to the system, plus every entity that has ever lodged a proxy before — with
+ * free text still allowed for anything not yet on the list. Embedded in
+ * Mason-View this is where the host's full lodge directory feeds in.
+ */
+router.get('/entities', async (req, res) => {
+  try {
+    const [bodies, past] = await Promise.all([
+      prisma.board.findMany({ select: { name: true, kind: true }, orderBy: { name: 'asc' } }),
+      prisma.proxy.findMany({
+        where: { grantorName: { not: null } },
+        select: { grantorName: true, grantorKind: true },
+        distinct: ['grantorName'],
+      }),
+    ]);
+
+    const seen = new Set();
+    const entities = [];
+    for (const b of bodies) {
+      const key = b.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entities.push({ name: b.name, kind: b.kind === 'BOARD' ? 'COMPANY' : 'ASSOCIATION' });
+    }
+    for (const p of past) {
+      const key = p.grantorName.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entities.push({ name: p.grantorName, kind: p.grantorKind });
+    }
+
+    entities.sort((a, b) => a.name.localeCompare(b.name));
+    res.json(entities);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Register a proxy: from a member, or from a lodge/company by name. */
 router.post('/', requireAdmin, async (req, res) => {
   try {
