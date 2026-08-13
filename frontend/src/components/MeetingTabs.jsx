@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  FolderOpen, Users, AlertTriangle, Vote as VoteIcon, ClipboardList, Check, X, Video, MapPin,
+  FolderOpen, Users, AlertTriangle, Vote as VoteIcon, ClipboardList, Check, X, Video, MapPin, Scale,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApi } from '../lib/useApi'
@@ -34,6 +34,9 @@ export default function MeetingTabs({ meeting }) {
   // resolved.
   const tabs = [
     { id: 'attendance', label: 'Attendance',  icon: Users,          count: (meeting.invitations || []).length },
+    // Quorum sits straight after the roll: mark attendance, then see at once
+    // whether the meeting can transact business.
+    { id: 'quorum',     label: 'Quorum',      icon: Scale },
     { id: 'coi',        label: 'Conflicts',   icon: AlertTriangle,  count: cois?.length },
     { id: 'minutes',    label: 'Minutes',     icon: ClipboardList },
     { id: 'pack',       label: 'Board pack',  icon: FolderOpen },
@@ -75,6 +78,12 @@ export default function MeetingTabs({ meeting }) {
       {tab === 'attendance' && (
         <div className="p-4">
           <AttendanceRoll meetingId={meeting.id} />
+        </div>
+      )}
+
+      {tab === 'quorum' && (
+        <div className="p-4">
+          <QuorumPanel meetingId={meeting.id} />
         </div>
       )}
 
@@ -156,6 +165,90 @@ export default function MeetingTabs({ meeting }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Whether the meeting can transact business, from the marked roll.
+ *
+ * The rule is the board's own: a minimum count of counting members, named
+ * officers who must be in the room, and ex officio roles that attend but are
+ * not counted.
+ */
+function QuorumPanel({ meetingId }) {
+  const { data, loading, error, refetch } = useApi(`/attendance/roll/${meetingId}`)
+  const q = data?.quorum
+
+  if (loading || error || !q) {
+    return <DataState loading={loading} error={error} empty={!loading && !error && !q} emptyLabel="No quorum rule configured" onRetry={refetch} />
+  }
+
+  return (
+    <div className="space-y-4">
+      <div
+        className="p-4 rounded-lg flex items-start gap-3"
+        style={{
+          background: q.met ? 'var(--bp-success-bg)' : 'var(--bp-danger-bg)',
+          color: q.met ? 'var(--bp-success-fg)' : 'var(--bp-danger-fg)',
+        }}
+      >
+        <Scale size={20} className="shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold">{q.met ? 'Quorum met' : 'No quorum'}</p>
+          <p className="text-sm mt-0.5">{q.message}</p>
+        </div>
+      </div>
+
+      <div className="bp-divide">
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-sm">Counting members present</span>
+          <span className={`bp-badge bp-badge--${q.counted >= q.minimum ? 'success' : 'danger'}`}>
+            {q.counted} of {q.minimum} required
+          </span>
+        </div>
+        {q.requirements.map((r) => (
+          <div key={r.role} className="py-2.5 flex items-center justify-between">
+            <span className="text-sm">{r.role.charAt(0) + r.role.slice(1).toLowerCase()} present</span>
+            {r.satisfied
+              ? <span className="bp-badge bp-badge--success"><Check size={11} className="mr-1" />Yes</span>
+              : <span className="bp-badge bp-badge--danger"><X size={11} className="mr-1" />No</span>}
+          </div>
+        ))}
+        {q.exOfficioRoles.length > 0 && (
+          <div className="py-2.5 flex items-center justify-between">
+            <span className="text-sm bp-muted">
+              Ex officio ({q.exOfficioRoles.map((r) => r.charAt(0) + r.slice(1).toLowerCase()).join(', ')}) — attends, not counted
+            </span>
+            <span className="bp-badge bp-badge--neutral">{q.exOfficioPresent} present</span>
+          </div>
+        )}
+      </div>
+
+      {/* Who actually constitutes the quorum — for the minutes. */}
+      {(q.countedMembers || []).length > 0 && (
+        <div>
+          <p className="text-xs uppercase tracking-wide bp-subtle font-medium mb-2">
+            Quorum constituted by
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {q.countedMembers.map((m) => (
+              <span key={m.member} className="bp-badge bp-badge--success">
+                {m.member}{m.role ? ` — ${humanise(m.role)}` : ''}
+              </span>
+            ))}
+            {(q.exOfficioMembers || []).map((m) => (
+              <span key={m.member} className="bp-badge bp-badge--neutral" title="Attends ex officio — not counted">
+                {m.member}{m.role ? ` — ${humanise(m.role)}` : ''} (ex officio)
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs bp-subtle">
+        Updates as the roll is marked on the Attendance tab.
+      </p>
     </div>
   )
 }

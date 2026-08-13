@@ -136,9 +136,37 @@ function meetingFolderName(meeting) {
 /** Reference folders (policies, duty statements) carry no date. */
 const isReferenceFolder = (name) => dateFromFolderName(name) === null;
 
+/**
+ * Agenda-item number at the front of a pack sub-folder name.
+ * "05 Financial & Grand Treasurer's Reports" -> 5, "10.01 Grand Registrar" -> 10.
+ */
+function agendaNumberFromFolderName(name) {
+  const m = String(name || '').match(/^\s*(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Stamp a received time against the papers-due window.
+ *
+ *   ON_TIME        in hand before papers were due
+ *   LATE           inside the due window but before the meeting
+ *   AFTER_MEETING  arrived after the board sat
+ */
+function receivedStatus(receivedAt, meetingDate, dueDays = 4) {
+  if (!receivedAt || !meetingDate) return null;
+  const received = new Date(receivedAt);
+  const meeting = new Date(meetingDate);
+  const due = new Date(meeting.getTime() - dueDays * 24 * 60 * 60 * 1000);
+  if (received <= due) return 'ON_TIME';
+  if (received <= meeting) return 'LATE';
+  return 'AFTER_MEETING';
+}
+
 module.exports = {
   dateFromFolderName,
   matchMeetingFolder,
   meetingFolderName,
   isReferenceFolder,
+  agendaNumberFromFolderName,
+  receivedStatus,
 };

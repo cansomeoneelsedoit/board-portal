@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, Plus, Search, Video, MapPin, Users, ChevronRight, X } from 'lucide-react'
+import { Calendar, Plus, Search, Video, MapPin, Users, ChevronRight, ChevronLeft, X } from 'lucide-react'
 import api, { endpoints } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { fmtDateTime } from '../lib/format'
@@ -13,10 +13,15 @@ const FILTERS = [
   { id: 'draft',     label: 'Draft' },
 ]
 
+const PAGE_SIZE = 10
+
 export default function Meetings() {
   const { data, loading, error, refetch } = useApi(endpoints.meetings())
+  const { data: bodies } = useApi('/boards')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+  const [bodyId, setBodyId] = useState('all')
+  const [page, setPage] = useState(1)
   const [showNew, setShowNew] = useState(false)
 
   const meetings = data || []
@@ -29,13 +34,30 @@ export default function Meetings() {
         m.title.toLowerCase().includes(search.toLowerCase()) ||
         (m.location || '').toLowerCase().includes(search.toLowerCase())
       if (!matchSearch) return false
+      if (bodyId !== 'all' && m.boardId !== bodyId) return false
       if (filter === 'all') return true
       if (filter === 'draft') return m.status === 'DRAFT'
       if (filter === 'completed') return m.status === 'COMPLETED' || new Date(m.date) < now
       if (filter === 'upcoming') return m.status !== 'DRAFT' && new Date(m.date) >= now
       return true
     })
-  }, [meetings, search, filter])
+  }, [meetings, search, filter, bodyId])
+
+  // Page within the filtered list, then group the page by year — the same
+  // shape as the filing cabinet's year folders.
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const current = Math.min(page, pageCount)
+  const paged = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE)
+  const byYear = useMemo(() => {
+    const groups = []
+    for (const m of paged) {
+      const year = m.date ? String(new Date(m.date).getFullYear()) : 'Undated'
+      const last = groups[groups.length - 1]
+      if (last && last.year === year) last.items.push(m)
+      else groups.push({ year, items: [m] })
+    }
+    return groups
+  }, [paged])
 
   return (
     <div className="space-y-6">
@@ -54,21 +76,34 @@ export default function Meetings() {
           <Search size={16} className="bp-subtle shrink-0" />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
             placeholder="Search meetings…"
             className="flex-1 bg-transparent text-sm outline-none"
           />
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           {FILTERS.map((f) => (
             <button
               key={f.id}
-              onClick={() => setFilter(f.id)}
+              onClick={() => { setFilter(f.id); setPage(1) }}
               className={filter === f.id ? 'bp-btn bp-btn-primary' : 'bp-btn bp-btn-secondary'}
             >
               {f.label}
             </button>
           ))}
+          {(bodies || []).length > 1 && (
+            <select
+              value={bodyId}
+              onChange={(e) => { setBodyId(e.target.value); setPage(1) }}
+              className="bp-input text-sm py-1.5"
+              title="Which board or committee"
+            >
+              <option value="all">All bodies</option>
+              {(bodies || []).map((b) => (
+                <option key={b.id} value={b.id}>{b.shortName || b.name}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -80,9 +115,16 @@ export default function Meetings() {
           emptyLabel={meetings.length ? 'No meetings match those filters' : 'No meetings yet'}
           onRetry={refetch}
         />
-        {!loading && !error && filtered.length > 0 && (
-          <div className="bp-divide">
-            {filtered.map((m) => (
+        {!loading && !error && filtered.length > 0 && byYear.map((group) => (
+          <div key={group.year}>
+            <div
+              className="px-4 py-2 text-xs font-semibold uppercase tracking-wide bp-muted"
+              style={{ background: 'var(--bp-neutral-bg)', borderBottom: '1px solid var(--bp-card-border)' }}
+            >
+              {group.year}
+            </div>
+            <div className="bp-divide">
+            {group.items.map((m) => (
               <div
                 key={m.id}
                 className="p-4 flex items-center gap-4 transition-colors hover:bg-[var(--bp-neutral-bg)]"
@@ -122,6 +164,35 @@ export default function Meetings() {
                 </Link>
               </div>
             ))}
+            </div>
+          </div>
+        ))}
+
+        {!loading && !error && filtered.length > PAGE_SIZE && (
+          <div
+            className="px-4 py-3 flex items-center justify-between"
+            style={{ borderTop: '1px solid var(--bp-card-border)' }}
+          >
+            <span className="text-xs bp-muted">
+              Showing {(current - 1) * PAGE_SIZE + 1}–{Math.min(current * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={current <= 1}
+                className="bp-btn bp-btn-secondary"
+              >
+                <ChevronLeft size={14} /> Previous
+              </button>
+              <span className="text-xs bp-muted">Page {current} of {pageCount}</span>
+              <button
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                disabled={current >= pageCount}
+                className="bp-btn bp-btn-secondary"
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
         )}
       </Card>
@@ -140,6 +211,14 @@ function NewMeetingModal({ onClose, onCreated }) {
   const { data: boards } = useApi(endpoints.boards())
   const [form, setForm] = useState({
     title: '', date: '', time: '18:30', location: '', videoUrl: '', status: 'SCHEDULED',
+  })
+  // Quorum rule for this meeting. Defaults to the AF&AM Inc rule; saved on the
+  // meeting so one sitting can differ from the board's standing rule.
+  const [quorum, setQuorum] = useState({
+    minimum: 4,
+    requireChair: true,
+    requireTreasurer: true,
+    secretaryExOfficio: true,
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
@@ -160,6 +239,12 @@ function NewMeetingModal({ onClose, onCreated }) {
         location: form.location || null,
         videoUrl: form.videoUrl || null,
         status: form.status,
+        quorumMinimum: Number(quorum.minimum) || 4,
+        quorumRequiredRoles: [
+          quorum.requireChair ? 'CHAIR' : null,
+          quorum.requireTreasurer ? 'TREASURER' : null,
+        ].filter(Boolean).join(','),
+        quorumExOfficioRoles: quorum.secretaryExOfficio ? 'SECRETARY' : '',
       })
       onCreated()
     } catch (e2) {
@@ -215,6 +300,34 @@ function NewMeetingModal({ onClose, onCreated }) {
               <option value="DRAFT">Draft</option>
             </select>
           </label>
+
+          <fieldset className="bp-card p-3 space-y-2">
+            <legend className="text-sm font-medium px-1">Quorum for this meeting</legend>
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-sm">Minimum counting members</span>
+              <input
+                type="number" min="1" max="20"
+                value={quorum.minimum}
+                onChange={(e) => setQuorum((s) => ({ ...s, minimum: e.target.value }))}
+                className="bp-input w-20 text-center"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={quorum.requireChair}
+                onChange={(e) => setQuorum((s) => ({ ...s, requireChair: e.target.checked }))} />
+              Must include the Chair
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={quorum.requireTreasurer}
+                onChange={(e) => setQuorum((s) => ({ ...s, requireTreasurer: e.target.checked }))} />
+              Must include the Treasurer
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={quorum.secretaryExOfficio}
+                onChange={(e) => setQuorum((s) => ({ ...s, secretaryExOfficio: e.target.checked }))} />
+              Secretary attends ex officio (not counted)
+            </label>
+          </fieldset>
 
           {err && <p className="text-sm" style={{ color: 'var(--bp-danger-fg)' }}>{err}</p>}
         </div>

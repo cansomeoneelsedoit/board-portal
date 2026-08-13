@@ -3,7 +3,9 @@ const prisma = require('../lib/prisma');
 const packs = require('../lib/pack-sources');
 const sp = require('../lib/graph/sharepoint');
 const { getGraphToken } = require('../lib/graph/auth');
-const { meetingFolderName } = require('../lib/board-pack');
+const {
+  meetingFolderName, matchMeetingFolder, agendaNumberFromFolderName, receivedStatus,
+} = require('../lib/board-pack');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
 const { requireAdmin } = require('../lib/session');
 
@@ -18,6 +20,28 @@ function handle(res, error) {
 
 const loadMeeting = (id) =>
   prisma.meeting.findUnique({ where: { id }, include: { board: true } });
+
+/**
+ * Folders available in the host platform's file vault, for the per-meeting
+ * picker. The adapter is registered by the host at boot; standalone there is
+ * none and we say so. (Declared before /:meetingId so it is never shadowed.)
+ */
+router.get('/vault/folders', async (req, res) => {
+  try {
+    if (!packs.hasVaultAdapter()) {
+      return res.status(400).json({
+        error: 'The file vault is provided by the host platform (Mason-View) and is not available standalone.',
+      });
+    }
+    const adapter = packs.getVaultAdapter();
+    if (typeof adapter.listFolders !== 'function') {
+      return res.status(501).json({ error: 'This vault adapter does not support folder browsing.' });
+    }
+    res.json(await adapter.listFolders());
+  } catch (error) {
+    handle(res, error);
+  }
+});
 
 /**
  * A meeting's papers, whatever they are stored in.
@@ -38,6 +62,103 @@ router.get('/:meetingId', async (req, res) => {
       packSource: meeting.packSource,
       effectiveSource: packs.effectiveSource(meeting, meeting.board),
       vaultAvailable: packs.hasVaultAdapter(),
+    });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/**
+ * Received stamps for the agenda.
+ *
+ * Automates the "Received 29/7/26 @ 15:15" annotations the secretary keeps by
+ * hand on the agenda: each agenda item is matched to its pack folder (the
+ * numbered sub-folders — "05 Financial & Grand Treasurer's Reports" -> item 5)
+ * or to directly-uploaded papers, and the latest file's time becomes the
+ * item's received stamp, classified against the papers-due window.
+ */
+router.get('/:meetingId/received', async (req, res) => {
+  try {
+    const meeting = await loadMeeting(req.params.meetingId);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const board = meeting.board;
+    const dueDays = board?.papersDueDays ?? 4;
+    const agendaItems = await prisma.agendaItem.findMany({
+      where: { meetingId: meeting.id },
+      orderBy: { order: 'asc' },
+    });
+
+    // itemNumber -> { receivedAt, fileCount }
+    const byNumber = new Map();
+
+    const source = packs.effectiveSource(meeting, meeting.board);
+
+    if (source === 'SHAREPOINT' && board?.sharepointDriveId) {
+      const { token } = await getGraphToken();
+      let folderId = meeting.sharepointFolderId;
+      if (!folderId) {
+        const children = await sp.listChildren(token, board.sharepointDriveId, board.sharepointFolderId);
+        folderId = matchMeetingFolder(children.filter((c) => c.isFolder), meeting)?.id || null;
+      }
+      if (folderId) {
+        const entries = await sp.listChildren(token, board.sharepointDriveId, folderId);
+        for (const entry of entries.filter((e) => e.isFolder)) {
+          const number = agendaNumberFromFolderName(entry.name);
+          if (number === null) continue;
+          const files = (await sp.listChildren(token, board.sharepointDriveId, entry.id))
+            .filter((f) => !f.isFolder);
+          if (!files.length) {
+            if (!byNumber.has(number)) byNumber.set(number, { receivedAt: null, fileCount: 0 });
+            continue;
+          }
+          const latest = files.reduce((a, b) =>
+            new Date(a.modifiedAt || 0) > new Date(b.modifiedAt || 0) ? a : b);
+          byNumber.set(number, { receivedAt: latest.modifiedAt, fileCount: files.length });
+        }
+      }
+    } else {
+      // LOCAL: uploaded papers carry their agenda item directly.
+      const docs = await prisma.document.findMany({
+        where: { meetingId: meeting.id, agendaItemId: { not: null } },
+      });
+      const byItem = new Map();
+      for (const d of docs) {
+        const at = d.modifiedAt || d.createdAt;
+        const cur = byItem.get(d.agendaItemId);
+        if (!cur || new Date(at) > new Date(cur.receivedAt)) {
+          byItem.set(d.agendaItemId, { receivedAt: at, fileCount: (cur?.fileCount || 0) + 1 });
+        } else {
+          cur.fileCount += 1;
+        }
+      }
+      for (const item of agendaItems) {
+        const hit = byItem.get(item.id);
+        if (hit) byNumber.set(Number(item.number), hit);
+      }
+    }
+
+    const dueAt = meeting.date
+      ? new Date(new Date(meeting.date).getTime() - dueDays * 86400000)
+      : null;
+
+    res.json({
+      meetingDate: meeting.date,
+      dueDays,
+      dueAt,
+      items: agendaItems.map((item) => {
+        const hit = byNumber.get(Number(item.number));
+        return {
+          agendaItemId: item.id,
+          number: item.number,
+          receivedAt: hit?.receivedAt || null,
+          fileCount: hit?.fileCount || 0,
+          // null when nothing has arrived — "awaited" only if a folder exists.
+          status: hit?.receivedAt
+            ? receivedStatus(hit.receivedAt, meeting.date, dueDays)
+            : hit ? 'AWAITED' : null,
+        };
+      }),
     });
   } catch (error) {
     handle(res, error);
@@ -103,10 +224,12 @@ router.post('/:meetingId/upload', requireAdmin, async (req, res) => {
     if (!file) return res.status(400).json({ error: 'No file uploaded (expected field "file")' });
 
     const source = packs.effectiveSource(meeting, meeting.board);
-    const { name, tags, agendaItemId } = req.body || {};
+    const { name, tags, agendaItemId, relativePath } = req.body || {};
 
     if (source === 'LOCAL') {
-      const document = await packs.saveLocalUpload(meeting, file, { name, tags, agendaItemId });
+      const document = await packs.saveLocalUpload(meeting, file, {
+        name, tags, agendaItemId, relativePath,
+      });
       return res.status(201).json({ source, document });
     }
 

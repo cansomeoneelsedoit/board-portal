@@ -48,6 +48,19 @@ model Board {
 
   /// Shown against declarations, e.g. "Audit & Risk Committee".
   shortName   String?
+
+  /// How many days before a meeting the papers are due. Reports received
+  /// inside this window are stamped late; after the meeting itself, "after
+  /// board date". AF&AM Inc works to 4 days.
+  papersDueDays Int @default(4)
+
+  /// Quorum rule, as boards actually write them: a minimum count, roles that
+  /// MUST be among those present, and roles that attend ex officio and are
+  /// not counted. AF&AM Inc: 4 members who must include the Chair and the
+  /// Treasurer plus any two other directors; the Secretary is ex officio.
+  quorumMinimum        Int    @default(4)
+  quorumRequiredRoles  String @default("CHAIR,TREASURER")
+  quorumExOfficioRoles String @default("SECRETARY")
   // Tenant seam: when this app runs as a module inside a MasonsView/HotelView
   // vertical, orgKey holds the host organisation/hotel identifier so boards can
   // be scoped per tenant. Null when running standalone.
@@ -102,6 +115,11 @@ model Meeting {
   // Folder in the host platform's file vault, when packSource is VAULT.
   vaultFolderId String?
   vaultPath     String?
+
+  // Per-meeting quorum overrides; null inherits the board's rule.
+  quorumMinimum        Int?
+  quorumRequiredRoles  String?
+  quorumExOfficioRoles String?
   
   board       Board        @relation(fields: [boardId], references: [id])
   agendaItems AgendaItem[]

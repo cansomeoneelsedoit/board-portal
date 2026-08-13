@@ -38,6 +38,20 @@ const api = express.Router();
 // Who the host says is asking, and what the UI should offer them.
 api.get('/session', (req, res) => res.json(req.session));
 
+// Blanket write-guard: reads are open to every role, writes need a board
+// administrator. Declaring a conflict is the one exception — a member declares
+// their own interests. Route-level requireAdmin guards remain as a second
+// layer; this catches the generic CRUD routes that have none of their own.
+api.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (req.session?.role === 'ADMIN') return next();
+  if (req.method === 'POST' && req.path === '/coi') return next();
+  return res.status(403).json({
+    error: 'This action needs board administrator access.',
+    role: req.session?.role || 'MEMBER',
+  });
+});
+
 api.use('/dashboard', require('./routes/dashboard'));
 api.use('/users', require('./routes/users'));
 api.use('/boards', require('./routes/boards'));

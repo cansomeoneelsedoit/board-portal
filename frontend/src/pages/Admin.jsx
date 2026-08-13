@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { UserPlus, Trash2, Plus, Users, Building2, ShieldAlert, X } from 'lucide-react'
+import { UserPlus, Trash2, Plus, Users, Building2, ShieldAlert, X, Pencil, Check } from 'lucide-react'
 import api from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { humanise } from '../lib/format'
@@ -8,7 +8,7 @@ import MemberSearch from '../components/MemberSearch'
 import SharePointSetup from '../components/SharePointSetup'
 import { useSession } from '../lib/useSession'
 
-const BOARD_ROLES = ['CHAIR', 'SECRETARY', 'TREASURER', 'DIRECTOR', 'OBSERVER']
+const BOARD_ROLES = ['CHAIR', 'SECRETARY', 'TREASURER', 'DIRECTOR', 'COMMITTEE_MEMBER', 'OBSERVER', 'INVITEE', 'GUEST']
 
 /**
  * Board setup — everything an administrator configures in one place.
@@ -159,27 +159,82 @@ function Bodies() {
       {bodies.length > 0 && (
         <div className="bp-divide">
           {bodies.map((b) => (
-            <div key={b.id} className="p-3 flex items-center gap-3">
-              <span className="bp-chip bp-chip--primary w-8 h-8 shrink-0 text-xs font-semibold">
-                {(b.shortName || b.name).slice(0, 3).toUpperCase()}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{b.name}</p>
-                <p className="text-xs bp-muted truncate">
-                  {humanise(b.kind)}
-                  {b.parent ? ` · reports to ${b.parent.name}` : ''}
-                  {` · ${b.meetingCount} meeting${b.meetingCount === 1 ? '' : 's'}`}
-                </p>
-              </div>
-              <button onClick={() => remove(b)} disabled={busy === b.id}
-                className="bp-subtle hover:text-[var(--bp-danger-fg)] p-1.5" title="Remove">
-                <Trash2 size={14} />
-              </button>
-            </div>
+            <BodyRow key={b.id} body={b} busy={busy} onRemove={remove} onSaved={refetch} />
           ))}
         </div>
       )}
     </Card>
+  )
+}
+
+function BodyRow({ body: b, busy, onRemove, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({ name: b.name, shortName: b.shortName || '' })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const save = async () => {
+    setSaving(true)
+    setErr(null)
+    try {
+      await api.put(`/boards/${b.id}`, { name: draft.name, shortName: draft.shortName || null })
+      setEditing(false)
+      await onSaved()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="p-3 flex items-center gap-3">
+      <span className="bp-chip bp-chip--primary w-8 h-8 shrink-0 text-xs font-semibold">
+        {(b.shortName || b.name).slice(0, 3).toUpperCase()}
+      </span>
+      <div className="min-w-0 flex-1">
+        {editing ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              className="bp-input text-sm py-1 flex-1 min-w-[12rem]" />
+            <input value={draft.shortName} onChange={(e) => setDraft((d) => ({ ...d, shortName: e.target.value }))}
+              placeholder="Short name" className="bp-input text-sm py-1 w-28" />
+            {err && <span className="text-xs" style={{ color: 'var(--bp-danger-fg)' }}>{err}</span>}
+          </div>
+        ) : (
+          <>
+            <p className="text-sm font-medium truncate">{b.name}</p>
+            <p className="text-xs bp-muted truncate">
+              {humanise(b.kind)}
+              {b.parent ? ` · reports to ${b.parent.name}` : ''}
+              {` · ${b.meetingCount} meeting${b.meetingCount === 1 ? '' : 's'}`}
+            </p>
+          </>
+        )}
+      </div>
+      {editing ? (
+        <>
+          <button onClick={save} disabled={saving} className="bp-btn bp-btn-primary" title="Save">
+            <Check size={14} /> Save
+          </button>
+          <button onClick={() => { setEditing(false); setDraft({ name: b.name, shortName: b.shortName || '' }) }}
+            className="bp-subtle hover:text-[var(--bp-fg)] p-1.5" title="Cancel">
+            <X size={14} />
+          </button>
+        </>
+      ) : (
+        <>
+          <button onClick={() => setEditing(true)}
+            className="bp-subtle hover:text-[var(--bp-fg)] p-1.5" title="Edit">
+            <Pencil size={14} />
+          </button>
+          <button onClick={() => onRemove(b)} disabled={busy === b.id}
+            className="bp-subtle hover:text-[var(--bp-danger-fg)] p-1.5" title="Remove">
+            <Trash2 size={14} />
+          </button>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -365,24 +420,87 @@ function Directory() {
       {users.length > 0 && (
         <div className="overflow-x-auto">
           <table className="bp-table">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th /></tr></thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id}>
-                  <td>
-                    <span className="flex items-center gap-2.5">
-                      <Avatar name={u.name} initials={u.initials} size={26} />
-                      <span className="font-medium">{u.name}</span>
-                    </span>
-                  </td>
-                  <td className="bp-muted">{u.email}</td>
-                  <td><Badge status={u.role} tone="neutral" /></td>
-                </tr>
+                <PersonRow key={u.id} person={u} onSaved={refetch} />
               ))}
             </tbody>
           </table>
         </div>
       )}
     </Card>
+  )
+}
+
+
+function PersonRow({ person: u, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({ name: u.name, email: u.email, role: u.role })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const save = async () => {
+    setSaving(true)
+    setErr(null)
+    try {
+      await api.put(`/users/${u.id}`, draft)
+      setEditing(false)
+      await onSaved()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <tr>
+        <td>
+          <span className="flex items-center gap-2.5">
+            <Avatar name={u.name} initials={u.initials} size={26} />
+            <span className="font-medium">{u.name}</span>
+          </span>
+        </td>
+        <td className="bp-muted">{u.email}</td>
+        <td><Badge status={u.role} tone="neutral" /></td>
+        <td>
+          <button onClick={() => setEditing(true)} className="bp-subtle hover:text-[var(--bp-fg)] p-1.5" title="Edit">
+            <Pencil size={14} />
+          </button>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr>
+      <td>
+        <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+          className="bp-input text-sm py-1 w-full" />
+      </td>
+      <td>
+        <input value={draft.email} onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+          className="bp-input text-sm py-1 w-full" />
+        {err && <p className="text-xs mt-1" style={{ color: 'var(--bp-danger-fg)' }}>{err}</p>}
+      </td>
+      <td>
+        <select value={draft.role} onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}
+          className="bp-input text-sm py-1">
+          {BOARD_ROLES.map((r) => <option key={r} value={r}>{humanise(r)}</option>)}
+        </select>
+      </td>
+      <td>
+        <span className="flex items-center gap-1">
+          <button onClick={save} disabled={saving} className="bp-btn bp-btn-primary" title="Save">
+            <Check size={13} />
+          </button>
+          <button onClick={() => setEditing(false)} className="bp-subtle p-1.5" title="Cancel">
+            <X size={13} />
+          </button>
+        </span>
+      </td>
+    </tr>
   )
 }

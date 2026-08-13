@@ -1,8 +1,11 @@
 import { Link, useParams } from 'react-router-dom'
+import { useState } from 'react'
 import {
-  ArrowLeft, Calendar, MapPin, Video, FileText, Clock,
+  ArrowLeft, Calendar, MapPin, Video, FileText, Clock, Pencil, X,
 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
+import api from '../lib/api'
+import { useSession } from '../lib/useSession'
 import { endpoints } from '../lib/api'
 import { fmtBytes, fmtDateTime, humanise } from '../lib/format'
 import { Avatar, Badge, Card, CardHeader, DataState, Field, PageHeader } from '../components/ui'
@@ -12,6 +15,10 @@ import MeetingInvitations from '../components/MeetingInvitations'
 export default function MeetingDetail() {
   const { id } = useParams()
   const { data: meeting, loading, error, refetch } = useApi(endpoints.meeting(id))
+  // Received stamps for the agenda - the automated "Received 29/7 @ 15:15".
+  const { data: received } = useApi(id ? `/pack/${id}/received` : null)
+  const { capabilities } = useSession()
+  const [editing, setEditing] = useState(false)
 
   if (loading || error || !meeting) {
     return (
@@ -43,8 +50,25 @@ export default function MeetingDetail() {
       <PageHeader
         title={meeting.title}
         subtitle={meeting.board?.name}
-        actions={<Badge status={meeting.status} />}
+        actions={
+          <div className="flex items-center gap-2">
+            {capabilities?.manageMeetings && (
+              <button onClick={() => setEditing(true)} className="bp-btn bp-btn-secondary">
+                <Pencil size={14} /> Edit
+              </button>
+            )}
+            <Badge status={meeting.status} />
+          </div>
+        }
       />
+
+      {editing && (
+        <EditMeeting
+          meeting={meeting}
+          onClose={() => setEditing(false)}
+          onSaved={async () => { setEditing(false); await refetch() }}
+        />
+      )}
 
       <Card className="p-5">
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -99,6 +123,7 @@ export default function MeetingDetail() {
                         {item.presenter || 'No presenter'}
                         {item.duration ? ` · ${item.duration} min` : ''}
                       </p>
+                      <ReceivedStamp info={received?.items?.find((r) => r.agendaItemId === item.id)} />
                       {item.notes && <p className="text-xs bp-muted mt-1">{item.notes}</p>}
 
                       {(item.documents || []).length > 0 && (
@@ -125,6 +150,116 @@ export default function MeetingDetail() {
 
         </div>
       </div>
+    </div>
+  )
+}
+
+
+/** "Received 4 Aug 2026 at 3:15pm" plus on-time / late / after-board-date. */
+function ReceivedStamp({ info }) {
+  if (!info || !info.status) return null
+  if (info.status === 'AWAITED') {
+    return <p className="text-xs bp-subtle mt-1">Report awaited — folder is empty</p>
+  }
+  const tone = info.status === 'ON_TIME' ? 'success' : info.status === 'LATE' ? 'warning' : 'danger'
+  const label =
+    info.status === 'ON_TIME' ? 'Received on time'
+    : info.status === 'LATE' ? 'Received late'
+    : 'Received after board date'
+  return (
+    <p className="text-xs mt-1 flex items-center gap-2">
+      <span className={`bp-badge bp-badge--${tone}`}>{label}</span>
+      <span className="bp-muted">
+        Received {fmtDateTime(info.receivedAt)}
+        {info.fileCount > 1 ? ` · ${info.fileCount} files` : ''}
+      </span>
+    </p>
+  )
+}
+
+/** Edit the meeting's name, times and location in place. */
+function EditMeeting({ meeting, onClose, onSaved }) {
+  const d = meeting.date ? new Date(meeting.date) : null
+  const pad = (n) => String(n).padStart(2, '0')
+  const [form, setForm] = useState({
+    title: meeting.title || '',
+    date: d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '',
+    time: d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '18:30',
+    location: meeting.location || '',
+    videoUrl: meeting.videoUrl || '',
+    status: meeting.status || 'SCHEDULED',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+    try {
+      await api.put(`/meetings/${meeting.id}`, {
+        title: form.title,
+        date: new Date(`${form.date}T${form.time || '00:00'}`).toISOString(),
+        location: form.location || null,
+        videoUrl: form.videoUrl || null,
+        status: form.status,
+      })
+      await onSaved()
+    } catch (err) {
+      setError(err.message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <form onSubmit={submit} className="bp-card w-full max-w-lg" style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.25)' }}>
+        <div className="p-5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
+          <h2 className="text-lg font-semibold">Edit Meeting</h2>
+          <button type="button" onClick={onClose} className="bp-subtle hover:text-[var(--bp-fg)]"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <label className="block">
+            <span className="text-sm font-medium">Meeting Title</span>
+            <input required value={form.title} onChange={set('title')} className="bp-input w-full mt-1" />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-sm font-medium">Date</span>
+              <input required type="date" value={form.date} onChange={set('date')} className="bp-input w-full mt-1" />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium">Time</span>
+              <input type="time" value={form.time} onChange={set('time')} className="bp-input w-full mt-1" />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-sm font-medium">Location / Link</span>
+            <input value={form.location} onChange={set('location')} className="bp-input w-full mt-1" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium">Video Link</span>
+            <input value={form.videoUrl} onChange={set('videoUrl')} className="bp-input w-full mt-1" placeholder="https://…" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium">Status</span>
+            <select value={form.status} onChange={set('status')} className="bp-input w-full mt-1">
+              <option value="SCHEDULED">Scheduled</option>
+              <option value="DRAFT">Draft</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </label>
+          {error && <p className="text-sm" style={{ color: 'var(--bp-danger-fg)' }}>{error}</p>}
+        </div>
+        <div className="p-5 flex justify-end gap-3" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
+          <button type="button" onClick={onClose} className="bp-btn bp-btn-secondary">Cancel</button>
+          <button type="submit" disabled={saving} className="bp-btn bp-btn-primary">
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

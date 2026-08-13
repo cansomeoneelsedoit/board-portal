@@ -32,7 +32,8 @@ router.get('/', async (req, res) => {
 router.get('/roll/:meetingId', async (req, res) => {
   try {
     const meetingId = req.params.meetingId;
-    const [invitations, records] = await Promise.all([
+    const [meeting, invitations, records] = await Promise.all([
+      prisma.meeting.findUnique({ where: { id: meetingId }, include: { board: true } }),
       prisma.invitation.findMany({
         where: { meetingId },
         include: { user: true },
@@ -77,6 +78,29 @@ router.get('/roll/:meetingId', async (req, res) => {
     }
 
     const marked = roll.filter((r) => r.present !== null);
+
+    // ---- Quorum, against the board's rule (or this meeting's override) ----
+    // e.g. AF&AM Inc: minimum 4, must include CHAIR and TREASURER, SECRETARY
+    // attends ex officio and is not counted.
+    const board = meeting?.board;
+    const minimum = meeting?.quorumMinimum ?? board?.quorumMinimum ?? 4;
+    const csv = (v) => String(v || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const requiredRoles = csv(meeting?.quorumRequiredRoles ?? board?.quorumRequiredRoles ?? 'CHAIR,TREASURER');
+    const exOfficio = new Set(csv(meeting?.quorumExOfficioRoles ?? board?.quorumExOfficioRoles ?? 'SECRETARY'));
+    // Quorum counts members of the body. Guests, invitees and observers attend
+    // but are never "members present" — same footing as ex officio.
+    for (const role of ['GUEST', 'INVITEE', 'OBSERVER']) exOfficio.add(role);
+
+    const present = roll.filter((r) => r.present === true);
+    const counted = present.filter((r) => !exOfficio.has(String(r.role || '').toUpperCase()));
+
+    const requirements = requiredRoles.map((role) => ({
+      role,
+      satisfied: present.some((r) => String(r.role || '').toUpperCase() === role),
+    }));
+
+    const met = counted.length >= minimum && requirements.every((r) => r.satisfied);
+
     res.json({
       meetingId,
       roll,
@@ -85,6 +109,28 @@ router.get('/roll/:meetingId', async (req, res) => {
         marked: marked.length,
         present: marked.filter((r) => r.present).length,
         apologies: marked.filter((r) => !r.present).length,
+      },
+      quorum: {
+        met,
+        minimum,
+        counted: counted.length,
+        // Who actually makes the quorum up, for the record.
+        countedMembers: counted.map((r) => ({ member: r.member, role: r.role })),
+        exOfficioMembers: present
+          .filter((r) => exOfficio.has(String(r.role || '').toUpperCase()))
+          .map((r) => ({ member: r.member, role: r.role })),
+        exOfficioRoles: [...exOfficio],
+        exOfficioPresent: present.length - counted.length,
+        requirements,
+        // Plain-language verdict for the tab.
+        message: met
+          ? `Quorum met — ${counted.length} counting member${counted.length === 1 ? '' : 's'} present, all required officers in the room.`
+          : [
+              counted.length < minimum
+                ? `Only ${counted.length} of the ${minimum} counting members required are present.`
+                : null,
+              ...requirements.filter((r) => !r.satisfied).map((r) => `The ${r.role.toLowerCase()} is not present.`),
+            ].filter(Boolean).join(' '),
       },
     });
   } catch (e) {

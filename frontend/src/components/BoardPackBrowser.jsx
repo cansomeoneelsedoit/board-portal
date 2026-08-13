@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Folder, FileText, ChevronRight, ExternalLink, Home, Loader2, AlertCircle, Inbox,
-  Upload, Trash2, Cloud, Archive, HardDrive, Download,
+  Upload, Trash2, Cloud, Archive, HardDrive, Download, Camera,
 } from 'lucide-react'
 import api, { apiBase } from '../lib/api'
 import { fmtBytes, fmtDate } from '../lib/format'
@@ -30,6 +30,9 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   const [busy, setBusy] = useState(null)
   const [notice, setNotice] = useState(null)
   const fileInput = useRef(null)
+  // Separate input with capture: on a phone this opens the camera directly, so
+  // a paper tabled on the floor can be photographed straight into the pack.
+  const cameraInput = useRef(null)
 
   const load = useCallback(async (folderId, resetTrail) => {
     setLoading(true)
@@ -61,7 +64,7 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
     setTrail((t) => t.slice(0, index + 1))
   }
 
-  const upload = async (event) => {
+  const upload = async (event, { tabled = false } = {}) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file || !meetingId) return
@@ -71,10 +74,20 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
     try {
       const form = new FormData()
       form.append('file', file)
+      if (tabled) {
+        // A photo taken on the floor gets a name that says what it is, and a
+        // tag so tabled papers are findable afterwards.
+        const stamp = new Date().toLocaleString('en-AU', { hour12: false }).replace(/[/:]/g, '-')
+        form.append('name', `Tabled on the floor — ${stamp}`)
+        form.append('tags', 'tabled')
+      }
       const { data } = await api.post(`/pack/${meetingId}/upload`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      setNotice({ tone: 'success', text: `${file.name} added to ${SOURCE_META[data.source]?.label || data.source}` })
+      setNotice({
+        tone: 'success',
+        text: `${tabled ? 'Tabled paper' : file.name} added to ${SOURCE_META[data.source]?.label || data.source}`,
+      })
       await load(null, true)
     } catch (e) {
       setNotice({ tone: 'danger', text: e.message })
@@ -133,7 +146,23 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
             <button onClick={() => fileInput.current?.click()} disabled={busy === 'upload'} className="bp-btn bp-btn-secondary">
               <Upload size={14} /> {busy === 'upload' ? 'Uploading…' : 'Add paper'}
             </button>
+            <button
+              onClick={() => cameraInput.current?.click()}
+              disabled={busy === 'upload'}
+              className="bp-btn bp-btn-secondary"
+              title="Photograph a paper tabled on the floor — opens the camera on a phone"
+            >
+              <Camera size={14} /> Table a paper
+            </button>
             <input ref={fileInput} type="file" onChange={upload} className="hidden" />
+            <input
+              ref={cameraInput}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => upload(e, { tabled: true })}
+              className="hidden"
+            />
           </>
         )}
 

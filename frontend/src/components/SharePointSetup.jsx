@@ -18,9 +18,16 @@ function MicrosoftSignIn({ onConnected }) {
   const [message, setMessage] = useState(null)
   const cancelled = useRef(false)
 
-  useEffect(() => () => { cancelled.current = true }, [])
+  // StrictMode mounts, cleans up, and mounts again in dev — the cleanup was
+  // setting cancelled=true before the user ever clicked, which made every
+  // sign-in abort instantly with "code expired". Reset on (re)mount.
+  useEffect(() => {
+    cancelled.current = false
+    return () => { cancelled.current = true }
+  }, [])
 
   const start = async () => {
+    cancelled.current = false
     setState('waiting')
     setMessage(null)
     try {

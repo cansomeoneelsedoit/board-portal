@@ -94,6 +94,7 @@ async function sharepointPack(meeting, board, folderId) {
 let vaultAdapter = null;
 const registerVaultAdapter = (adapter) => { vaultAdapter = adapter; };
 const hasVaultAdapter = () => Boolean(vaultAdapter);
+const getVaultAdapter = () => vaultAdapter;
 
 async function vaultPack(meeting) {
   if (!vaultAdapter) {
@@ -146,28 +147,51 @@ async function localPack(meeting) {
     configured: true,
     folder: { id: null, name: 'Uploaded papers', webUrl: null },
     canUpload: true,
-    items: documents.map((d) => ({
-      id: d.id,
-      name: d.name,
-      isFolder: false,
-      size: d.size || 0,
-      mimetype: d.mimetype,
-      // Served by the static /uploads mount.
-      webUrl: `/uploads/${d.path}`,
-      modifiedAt: d.modifiedAt || d.createdAt,
-      modifiedBy: null,
-      documentId: d.id,
-    })),
+    items: documents
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        isFolder: false,
+        folder: d.sharepointFolder || null,
+        size: d.size || 0,
+        mimetype: d.mimetype,
+        // Served by the static /uploads mount.
+        webUrl: `/uploads/${d.path}`,
+        modifiedAt: d.modifiedAt || d.createdAt,
+        modifiedBy: null,
+        documentId: d.id,
+      }))
+      // Group folder-uploads together, folders first, like a real library.
+      .sort((a, b) =>
+        (a.folder || '') === (b.folder || '')
+          ? a.name.localeCompare(b.name)
+          : String(a.folder || '~').localeCompare(String(b.folder || '~'))
+      ),
   };
 }
 
-/** Save an uploaded file for a LOCAL-source meeting. */
+/**
+ * Save an uploaded file for a LOCAL-source meeting.
+ *
+ * meta.relativePath preserves folder structure when a whole folder is
+ * uploaded ("05 Financial Reports/2026 FR AFAM Inc.pdf") — sub-folders are
+ * recreated on disk and the top-level folder becomes the grouping label, so
+ * the pack browser reads like the folder that was dropped in.
+ */
 async function saveLocalUpload(meeting, file, meta = {}) {
-  const dir = meetingUploadDir(meeting.id);
+  // Sanitise every path segment; reject traversal outright.
+  const cleanSegment = (s) => String(s).replace(/[\\:*?"<>|]/g, '-').replace(/^\.+$/, '-').trim();
+  const relSegments = String(meta.relativePath || '')
+    .split('/')
+    .map(cleanSegment)
+    .filter((s) => s && s !== '-');
+  // The last segment of relativePath is the filename itself.
+  if (relSegments.length) relSegments.pop();
+
+  const dir = path.join(meetingUploadDir(meeting.id), ...relSegments);
   fs.mkdirSync(dir, { recursive: true });
 
-  // Keep the original name but never let it escape the meeting's directory.
-  const safeName = path.basename(file.name).replace(/[\\/:*?"<>|]/g, '-');
+  const safeName = cleanSegment(path.basename(file.name)) || 'paper';
   let finalName = safeName;
   let counter = 1;
   while (fs.existsSync(path.join(dir, finalName))) {
@@ -175,7 +199,12 @@ async function saveLocalUpload(meeting, file, meta = {}) {
     finalName = `${path.basename(safeName, ext)} (${counter++})${ext}`;
   }
 
-  await fs.promises.writeFile(path.join(dir, finalName), file.data);
+  const full = path.join(dir, finalName);
+  // Belt and braces: whatever the segments were, stay inside the upload root.
+  if (!path.resolve(full).startsWith(path.resolve(UPLOAD_DIR))) {
+    throw new Error('Upload path escapes the upload directory');
+  }
+  await fs.promises.writeFile(full, file.data);
 
   return prisma.document.create({
     data: {
@@ -183,11 +212,13 @@ async function saveLocalUpload(meeting, file, meta = {}) {
       filename: finalName,
       mimetype: file.mimetype,
       size: file.size,
-      path: `meetings/${meeting.id}/${finalName}`,
+      path: ['meetings', meeting.id, ...relSegments, finalName].join('/'),
       tags: meta.tags || '',
       meetingId: meeting.id,
       agendaItemId: meta.agendaItemId || null,
       source: 'LOCAL',
+      // Grouping label: the sub-folder the file sits in, like SharePoint packs.
+      sharepointFolder: relSegments.join('/') || null,
       modifiedAt: new Date(),
     },
   });

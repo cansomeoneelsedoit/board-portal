@@ -96,6 +96,19 @@ export default function Register() {
 
 function MemberBlock({ member, canManage, onChange }) {
   const [busy, setBusy] = useState(null)
+  const [editingId, setEditingId] = useState(null)
+  const [draft, setDraft] = useState('')
+
+  const saveText = async (interest) => {
+    setBusy(interest.id)
+    try {
+      await api.put(`/register/${interest.id}`, { interest: draft })
+      setEditingId(null)
+      await onChange()
+    } finally {
+      setBusy(null)
+    }
+  }
   // Accordion: the register is long (a dozen members, ~90 interests), so each
   // member starts collapsed and opens on click.
   const [open, setOpen] = useState(false)
@@ -167,9 +180,23 @@ function MemberBlock({ member, canManage, onChange }) {
             {member.interests.map((i) => (
               <tr key={i.id} style={i.status === 'ENDED' ? { opacity: 0.55 } : undefined}>
                 <td>
-                  <p className="font-medium">{i.interest}</p>
-                  {i.status === 'ENDED' && (
-                    <p className="text-xs bp-subtle">Ended {fmtDate(i.endedAt)}</p>
+                  {editingId === i.id ? (
+                    <span className="flex items-center gap-2">
+                      <input value={draft} onChange={(e) => setDraft(e.target.value)}
+                        className="bp-input text-sm py-1 w-full min-w-[16rem]" autoFocus />
+                      <button onClick={() => saveText(i)} disabled={busy === i.id}
+                        className="bp-btn bp-btn-primary" title="Save"><Check size={13} /></button>
+                      <button onClick={() => setEditingId(null)} className="bp-subtle p-1" title="Cancel">
+                        <X size={13} />
+                      </button>
+                    </span>
+                  ) : (
+                    <>
+                      <p className="font-medium">{i.interest}</p>
+                      {i.status === 'ENDED' && (
+                        <p className="text-xs bp-subtle">Ended {fmtDate(i.endedAt)}</p>
+                      )}
+                    </>
                   )}
                 </td>
                 <td className="hidden sm:table-cell">
@@ -188,6 +215,14 @@ function MemberBlock({ member, canManage, onChange }) {
                 {canManage && (
                   <td>
                     <div className="flex items-center gap-1 justify-end">
+                      <button
+                        onClick={() => { setEditingId(i.id); setDraft(i.interest) }}
+                        disabled={busy === i.id}
+                        className="bp-subtle hover:text-[var(--bp-fg)] p-1.5"
+                        title="Edit the wording"
+                      >
+                        <Pencil size={14} />
+                      </button>
                       <button
                         onClick={() => setNotified(i, !i.notified)}
                         disabled={busy === i.id}
