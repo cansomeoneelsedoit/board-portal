@@ -8,7 +8,8 @@ const { isGraphError, isConfigError } = require('../lib/graph/errors');
 const {
   startDeviceLogin, completeDeviceLogin, getConnectedAccount, disconnectAccount,
 } = require('../lib/graph/auth-device');
-const { meetingFolderName } = require('../lib/board-pack');
+const { meetingFolderName, matchMeetingFolder, isReferenceFolder } = require('../lib/board-pack');
+const { requireAdmin } = require('../lib/session');
 
 const router = express.Router();
 
@@ -151,7 +152,7 @@ router.get('/status', async (req, res) => {
  * consent. The user opens the verification URL, types the code, and approves
  * with their own account — Board Portal then acts with that person's rights.
  */
-router.post('/connect/start', async (req, res) => {
+router.post('/connect/start', requireAdmin, async (req, res) => {
   try {
     res.json(await startDeviceLogin());
   } catch (error) {
@@ -160,7 +161,7 @@ router.post('/connect/start', async (req, res) => {
 });
 
 /** Poll until the user finishes approving. Returns {pending:true} until then. */
-router.post('/connect/complete', async (req, res) => {
+router.post('/connect/complete', requireAdmin, async (req, res) => {
   try {
     const { deviceCode } = req.body || {};
     if (!deviceCode) return res.status(400).json({ error: 'deviceCode is required' });
@@ -171,7 +172,7 @@ router.post('/connect/complete', async (req, res) => {
 });
 
 /** Forget the signed-in account. Files in SharePoint are untouched. */
-router.delete('/connect', async (req, res) => {
+router.delete('/connect', requireAdmin, async (req, res) => {
   try {
     await disconnectAccount();
     res.json({ disconnected: true });
@@ -246,8 +247,10 @@ router.get('/pack/:meetingId', async (req, res) => {
     if (folderId) {
       folder = await sp.getFolderDetails(token, board.sharepointDriveId, folderId);
     } else {
-      const name = meetingFolderName(meeting);
-      folder = await sp.findChildFolder(token, board.sharepointDriveId, board.sharepointFolderId, name);
+      // Read the library's own naming rather than expecting ours: match on the
+      // date inside the folder name ("07 - 1 July 2026").
+      const children = await sp.listChildren(token, board.sharepointDriveId, board.sharepointFolderId);
+      folder = matchMeetingFolder(children.filter((c) => c.isFolder), meeting);
       folderId = folder?.id || null;
     }
 
@@ -274,7 +277,7 @@ router.get('/pack/:meetingId', async (req, res) => {
 });
 
 /** Pin a meeting's pack to a specific folder, by URL or by id. */
-router.post('/pack/:meetingId', async (req, res) => {
+router.post('/pack/:meetingId', requireAdmin, async (req, res) => {
   try {
     const { url, folderId } = req.body || {};
     const meeting = await prisma.meeting.findUnique({
@@ -313,7 +316,7 @@ router.post('/pack/:meetingId', async (req, res) => {
  * Resolve a pasted SharePoint folder URL without saving it, so the UI can show
  * what was found and let the user confirm before committing.
  */
-router.post('/resolve', async (req, res) => {
+router.post('/resolve', requireAdmin, async (req, res) => {
   try {
     const { url } = req.body || {};
     if (!url) return res.status(400).json({ error: 'url is required' });
@@ -365,7 +368,7 @@ router.get('/folders', async (req, res) => {
 });
 
 /** Save the chosen destination against a board, after checking it is reachable. */
-router.post('/destination', async (req, res) => {
+router.post('/destination', requireAdmin, async (req, res) => {
   try {
     const { boardId, siteId, driveId, folderId, url } = req.body || {};
     if (!url && (!driveId || !folderId)) {
@@ -410,7 +413,7 @@ router.post('/destination', async (req, res) => {
 });
 
 /** Unlink without touching anything in SharePoint. */
-router.delete('/destination', async (req, res) => {
+router.delete('/destination', requireAdmin, async (req, res) => {
   try {
     const board = await resolveBoard(req.query.boardId);
     if (!board) return res.status(404).json({ error: 'No board found' });

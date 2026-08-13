@@ -4,7 +4,8 @@ import clsx from 'clsx'
 import { useState } from 'react'
 import SkinToggle from './SkinToggle'
 import { Avatar } from './ui'
-import { navGroups, allNavItems } from '../navigation'
+import { navGroupsFor, allNavItems } from '../navigation'
+import { useSession } from '../lib/useSession'
 
 /**
  * Mason-View / HotelView styled shell.
@@ -31,6 +32,8 @@ function useBreadcrumb() {
 export default function LayoutMasonsView() {
   const [collapsed, setCollapsed] = useState(false)
   const crumbs = useBreadcrumb()
+  const { role } = useSession()
+  const navGroups = navGroupsFor(role === 'ADMIN')
 
   return (
     <div className="flex h-screen" style={{ background: 'var(--bp-bg)' }}>
@@ -116,7 +119,9 @@ export default function LayoutMasonsView() {
               <>
                 <span className="min-w-0 flex-1 text-left">
                   <span className="block text-sm font-medium truncate">Boyd Sparrow</span>
-                  <span className="block text-xs bp-muted truncate">Chair</span>
+                  <span className="block text-xs bp-muted truncate">
+                    {role === 'ADMIN' ? 'Board administrator' : 'Board member'}
+                  </span>
                 </span>
                 <ChevronsUpDown size={14} className="bp-subtle shrink-0" />
               </>

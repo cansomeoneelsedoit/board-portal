@@ -1,12 +1,12 @@
 import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Calendar, MapPin, Video, FileText, Clock, Vote as VoteIcon,
+  ArrowLeft, Calendar, MapPin, Video, FileText, Clock,
 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { endpoints } from '../lib/api'
 import { fmtBytes, fmtDateTime, humanise } from '../lib/format'
 import { Avatar, Badge, Card, CardHeader, DataState, Field, PageHeader } from '../components/ui'
-import BoardPackBrowser from '../components/BoardPackBrowser'
+import MeetingTabs from '../components/MeetingTabs'
 
 export default function MeetingDetail() {
   const { id } = useParams()
@@ -30,10 +30,8 @@ export default function MeetingDetail() {
   }
 
   const agenda = meeting.agendaItems || []
-  const motions = meeting.motions || []
   const invitations = meeting.invitations || []
   const totalMinutes = agenda.reduce((sum, a) => sum + (a.duration || 0), 0)
-  const documents = agenda.flatMap((a) => a.documents || [])
 
   return (
     <div className="space-y-6">
@@ -75,15 +73,11 @@ export default function MeetingDetail() {
         </div>
       </Card>
 
-      {/* The board pack, straight from SharePoint. Folders open in place;
-          files open in SharePoint, which is where editing happens. */}
-      <Card>
-        <CardHeader
-          title="Board pack"
-          action={<span className="text-xs bp-muted">Read-only — open in SharePoint to edit</span>}
-        />
-        <BoardPackBrowser meetingId={meeting.id} />
-      </Card>
+      {/* Everything about this meeting lives here — the pack, who attended,
+          what was declared, what was resolved. These used to be separate
+          top-level registers, which made one meeting read as six unrelated
+          lists. */}
+      <MeetingTabs meeting={meeting} />
 
       <div className="grid gap-6 xl:grid-cols-3">
         <Card className="xl:col-span-2">
@@ -146,54 +140,6 @@ export default function MeetingDetail() {
             )}
           </Card>
 
-          <Card>
-            <CardHeader title={`Motions (${motions.length})`} />
-            {motions.length === 0 ? (
-              <DataState empty emptyLabel="No motions tabled" />
-            ) : (
-              <div className="bp-divide">
-                {motions.map((m) => {
-                  const forVotes = (m.votes || []).filter((v) => v.vote === 'FOR').length
-                  const against = (m.votes || []).filter((v) => v.vote === 'AGAINST').length
-                  const abstain = (m.votes || []).filter((v) => v.vote === 'ABSTAIN').length
-                  return (
-                    <div key={m.id} className="p-4">
-                      <div className="flex items-start gap-2">
-                        <VoteIcon size={14} className="mt-1 bp-subtle shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">{m.number}</p>
-                          <p className="text-xs bp-muted mt-0.5">{m.title}</p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Badge status={m.status} />
-                            {(m.votes || []).length > 0 && (
-                              <span className="text-xs bp-muted">
-                                {forVotes} for · {against} against · {abstain} abstain
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </Card>
-
-          {documents.length > 0 && (
-            <Card>
-              <CardHeader title={`Papers (${documents.length})`} />
-              <div className="p-4 space-y-2">
-                {documents.map((d) => (
-                  <div key={d.id} className="flex items-center gap-2 text-sm">
-                    <FileText size={14} className="bp-subtle shrink-0" />
-                    <span className="truncate flex-1">{d.name}</span>
-                    <span className="text-xs bp-subtle">{fmtBytes(d.size)}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
         </div>
       </div>
     </div>

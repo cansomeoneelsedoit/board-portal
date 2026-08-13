@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const fileUpload = require('express-fileupload');
 const prisma = require('./lib/prisma');
+const { resolveSession } = require('./lib/session');
 
 const app = express();
 
@@ -25,13 +26,18 @@ app.use('/uploads', express.static(UPLOAD_DIR));
 // No authentication in standalone mode — the host vertical is expected to
 // authenticate and forward the identity as x-user-id.
 app.use((req, res, next) => {
-  req.userId = req.headers['x-user-id'] || null;
-  req.orgKey = req.headers['x-org-key'] || null;
+  req.session = resolveSession(req);
+  req.userId = req.session.userId;
+  req.orgKey = req.session.orgKey;
   next();
 });
 
 // Routes
 const api = express.Router();
+
+// Who the host says is asking, and what the UI should offer them.
+api.get('/session', (req, res) => res.json(req.session));
+
 api.use('/dashboard', require('./routes/dashboard'));
 api.use('/users', require('./routes/users'));
 api.use('/boards', require('./routes/boards'));

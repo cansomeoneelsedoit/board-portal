@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import { SkinProvider } from './theme/SkinProvider'
+import { SessionProvider } from './lib/useSession'
 import './index.css'
 
 /**
@@ -13,7 +14,9 @@ import './index.css'
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <SkinProvider>
-      <App />
+      <SessionProvider>
+        <App />
+      </SessionProvider>
     </SkinProvider>
   </React.StrictMode>
 )

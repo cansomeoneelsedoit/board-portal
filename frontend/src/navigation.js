@@ -1,49 +1,43 @@
 import {
-  LayoutDashboard, Calendar, FileText, Vote, ClipboardList,
-  Users, AlertTriangle, UserCheck, Settings,
+  LayoutDashboard, Calendar, FolderOpen, Settings, ShieldCheck,
 } from 'lucide-react'
 
 /**
  * Navigation for the Mason-View skin.
  *
- * Grouped the way the host product groups sidebar sections, and kept in its own
- * module so the port to a vertical becomes a direct translation into
- * modules/BoardPortal/resources/js/navigation/board.ts — same labels, same
- * icons, same grouping, only `to` becomes a Wayfinder route helper.
+ * Deliberately shallow. The board's real structure is: a library of meetings,
+ * and inside a meeting everything about that meeting — papers, attendance,
+ * conflicts, motions, minutes. Those were once top-level pages, which made the
+ * portal read as six unrelated registers instead of one board. They now live
+ * inside the meeting, where the SharePoint folders put them.
  *
- * The classic skin keeps its own flat nav inside Layout.jsx so the original
- * design stays byte-for-byte revertible.
+ * `admin: true` items are only shown to a board administrator. This is
+ * presentation only — the server enforces the same rule.
  */
 export const navGroups = [
   {
-    label: 'Governance',
+    label: 'Board',
     items: [
       { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/meetings',  icon: Calendar,        label: 'Meetings' },
-      { to: '/documents', icon: FileText,        label: 'Board Packs' },
+      { to: '/documents', icon: FolderOpen,      label: 'Library' },
     ],
   },
   {
-    label: 'Proceedings',
+    label: 'Administration',
+    admin: true,
     items: [
-      { to: '/motions',    icon: Vote,          label: 'Motions' },
-      { to: '/minutes',    icon: ClipboardList, label: 'Minutes' },
-      { to: '/attendance', icon: Users,         label: 'Attendance' },
-    ],
-  },
-  {
-    label: 'Compliance',
-    items: [
-      { to: '/coi',     icon: AlertTriangle, label: 'COI Register' },
-      { to: '/proxies', icon: UserCheck,     label: 'Proxies' },
-    ],
-  },
-  {
-    label: 'Configuration',
-    items: [
-      { to: '/integrations', icon: Settings, label: 'Integrations' },
+      { to: '/admin',        icon: ShieldCheck, label: 'Board setup', admin: true },
+      { to: '/integrations', icon: Settings,    label: 'Integrations', admin: true },
     ],
   },
 ]
 
 export const allNavItems = navGroups.flatMap((g) => g.items)
+
+/** Groups this role should see. */
+export const navGroupsFor = (isAdmin) =>
+  navGroups
+    .filter((g) => !g.admin || isAdmin)
+    .map((g) => ({ ...g, items: g.items.filter((i) => !i.admin || isAdmin) }))
+    .filter((g) => g.items.length > 0)
