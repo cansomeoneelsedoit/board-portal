@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Folder, FileText, ChevronRight, ExternalLink, Home, Loader2, AlertCircle, Inbox,
-  Upload, Trash2, Cloud, Archive, HardDrive, Download, Camera,
+  Upload, Trash2, Cloud, Archive, HardDrive, Download, Camera, FolderUp, ArrowLeft,
 } from 'lucide-react'
 import api, { apiBase } from '../lib/api'
 import { fmtBytes, fmtDate } from '../lib/format'
@@ -33,6 +33,9 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   // Separate input with capture: on a phone this opens the camera directly, so
   // a paper tabled on the floor can be photographed straight into the pack.
   const cameraInput = useRef(null)
+  // webkitdirectory: picking a folder uploads every file in it, sub-folders
+  // included, with relative paths preserved.
+  const folderInput = useRef(null)
 
   const load = useCallback(async (folderId, resetTrail) => {
     setLoading(true)
@@ -88,6 +91,34 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
         tone: 'success',
         text: `${tabled ? 'Tabled paper' : file.name} added to ${SOURCE_META[data.source]?.label || data.source}`,
       })
+      await load(null, true)
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const uploadFolder = async (event) => {
+    const files = [...(event.target.files || [])]
+    event.target.value = ''
+    if (!files.length || !meetingId) return
+
+    setBusy('upload')
+    try {
+      let done = 0
+      for (const file of files) {
+        const form = new FormData()
+        form.append('file', file)
+        // "August Pack/05 Financial/report.pdf" — structure preserved.
+        form.append('relativePath', file.webkitRelativePath || file.name)
+        await api.post(`/pack/${meetingId}/upload`, form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        done += 1
+        setNotice({ tone: 'info', text: `Uploading folder… ${done}/${files.length}` })
+      }
+      setNotice({ tone: 'success', text: `Folder uploaded — ${done} file${done === 1 ? '' : 's'}` })
       await load(null, true)
     } catch (e) {
       setNotice({ tone: 'danger', text: e.message })
@@ -172,7 +203,24 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
             >
               <Camera size={14} /> Table a paper
             </button>
+            <button
+              onClick={() => folderInput.current?.click()}
+              disabled={busy === 'upload'}
+              className="bp-btn bp-btn-secondary"
+              title="Upload a whole folder, sub-folders included"
+            >
+              <FolderUp size={14} /> Add folder
+            </button>
             <input ref={fileInput} type="file" onChange={upload} className="hidden" />
+            <input
+              ref={folderInput}
+              type="file"
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={uploadFolder}
+              className="hidden"
+            />
             <input
               ref={cameraInput}
               type="file"
