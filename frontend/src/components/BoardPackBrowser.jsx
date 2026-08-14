@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Folder, FileText, ChevronRight, ExternalLink, Home, Loader2, AlertCircle, Inbox,
-  Upload, Trash2, Cloud, Archive, HardDrive, Download, Camera, FolderUp, ArrowLeft,
+  Upload, Trash2, Cloud, Archive, HardDrive, Download, Camera, FolderUp, ArrowLeft, Eye, X,
 } from 'lucide-react'
 import api, { apiBase } from '../lib/api'
 import { fmtBytes, fmtDate } from '../lib/format'
@@ -155,6 +155,38 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
       setNotice({ tone: 'danger', text: e.message })
     } finally {
       setBusy(null)
+    }
+  }
+
+  // Papers open in a window rather than downloading: SharePoint files use the
+  // library's own embeddable viewer (Office docs, PDFs, images), local uploads
+  // render straight from this service. Read-only — editing stays in SharePoint.
+  const [preview, setPreview] = useState(null)
+
+  const localFileUrl = (item) => `${apiBase}/../uploads/${item.webUrl.replace(/^\/uploads\//, '')}`
+
+  const openPreview = async (item) => {
+    if (item.documentId) {
+      const url = localFileUrl(item)
+      const mime = item.mimetype || ''
+      const inline = /pdf|image\//.test(mime)
+      setPreview({
+        name: item.name, loading: false,
+        url: inline ? url : null,
+        image: /image\//.test(mime),
+        downloadUrl: url, webUrl: null,
+      })
+      return
+    }
+    setPreview({ name: item.name, loading: true, webUrl: item.webUrl })
+    try {
+      const path = meetingId
+        ? `/pack/${meetingId}/preview?itemId=${encodeURIComponent(item.id)}`
+        : `/sharepoint/preview?itemId=${encodeURIComponent(item.id)}`
+      const { data } = await api.get(path)
+      setPreview((p) => p && { ...p, loading: false, url: data.url, downloadUrl: data.downloadUrl })
+    } catch (e) {
+      setPreview((p) => p && { ...p, loading: false, error: e.message })
     }
   }
 
@@ -336,11 +368,10 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
             ) : (
               <div key={item.id} className="px-4 py-3 flex items-center gap-3 transition-colors hover:bg-[var(--bp-neutral-bg)]">
                 <span className="bp-chip bp-chip--info w-9 h-9 shrink-0"><FileText size={17} /></span>
-                <a
-                  href={item.documentId ? `${apiBase}/../uploads/${item.webUrl.replace(/^\/uploads\//, '')}` : item.webUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="min-w-0 flex-1"
+                <button
+                  onClick={() => openPreview(item)}
+                  className="min-w-0 flex-1 text-left"
+                  title="Preview this paper in a window"
                 >
                   <span className="block text-sm font-medium truncate">{item.name}</span>
                   <span className="block text-xs bp-subtle truncate">
@@ -348,9 +379,14 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
                     {item.modifiedAt ? ` · ${fmtDate(item.modifiedAt)}` : ''}
                     {item.modifiedBy ? ` · ${item.modifiedBy}` : ''}
                   </span>
-                </a>
-                {item.documentId ? <Download size={15} className="bp-subtle shrink-0" />
-                                 : <ExternalLink size={15} className="bp-subtle shrink-0" />}
+                </button>
+                <Eye size={15} className="bp-subtle shrink-0" />
+                {item.documentId && (
+                  <a href={localFileUrl(item)} target="_blank" rel="noreferrer"
+                     className="bp-subtle hover:text-[var(--bp-fg)] p-1.5 shrink-0" title="Download">
+                    <Download size={14} />
+                  </a>
+                )}
                 {capabilities?.writeDocuments && item.documentId && (
                   <button
                     onClick={() => removeLocal(item)}
@@ -364,6 +400,69 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
               </div>
             )
           )}
+        </div>
+      )}
+
+      {preview && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 p-4 flex items-center justify-center"
+          onClick={() => setPreview(null)}
+        >
+          <div
+            className="bp-card w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden"
+            style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.35)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
+              <FileText size={16} className="bp-subtle shrink-0" />
+              <span className="text-sm font-medium truncate flex-1">{preview.name}</span>
+              {preview.downloadUrl && (
+                <a href={preview.downloadUrl} target="_blank" rel="noreferrer" className="bp-btn bp-btn-secondary">
+                  <Download size={14} /> Download
+                </a>
+              )}
+              {preview.webUrl && (
+                <a href={preview.webUrl} target="_blank" rel="noreferrer" className="bp-btn bp-btn-secondary"
+                   title="Editing happens on the SharePoint side">
+                  <ExternalLink size={14} /> Edit in SharePoint
+                </a>
+              )}
+              <button onClick={() => setPreview(null)} className="bp-subtle hover:text-[var(--bp-fg)] p-1.5" title="Close">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0" style={{ background: 'var(--bp-neutral-bg)' }}>
+              {preview.loading && (
+                <div className="h-full flex items-center justify-center gap-2 bp-muted text-sm">
+                  <Loader2 size={16} className="animate-spin" /> Preparing preview…
+                </div>
+              )}
+              {!preview.loading && preview.error && (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-6">
+                  <span className="bp-chip bp-chip--danger w-10 h-10"><AlertCircle size={20} /></span>
+                  <p className="text-sm bp-muted max-w-md">{preview.error}</p>
+                </div>
+              )}
+              {!preview.loading && !preview.error && preview.url && (
+                preview.image ? (
+                  <div className="h-full overflow-auto flex items-center justify-center p-4">
+                    <img src={preview.url} alt={preview.name} className="max-w-full max-h-full" />
+                  </div>
+                ) : (
+                  <iframe title={preview.name} src={preview.url} className="w-full h-full border-0" />
+                )
+              )}
+              {!preview.loading && !preview.error && !preview.url && (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-6">
+                  <span className="bp-chip bp-chip--info w-10 h-10"><FileText size={20} /></span>
+                  <p className="text-sm bp-muted max-w-md">
+                    No inline preview for this file type — download it to read it.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

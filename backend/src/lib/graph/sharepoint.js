@@ -365,13 +365,29 @@ async function getItem(accessToken, driveId, itemId) {
 
 /** Short-lived direct download URL, so we never proxy bytes through this service. */
 async function getDownloadUrl(accessToken, driveId, itemId) {
-  const response = await graphFetch(
-    accessToken,
-    `${drivePath(driveId)}/items/${itemId}?$select=@microsoft.graph.downloadUrl,name`
-  );
+  // No $select: Graph drops the @microsoft.graph.downloadUrl annotation when
+  // it is asked for by name, but always includes it on the full item.
+  const response = await graphFetch(accessToken, `${drivePath(driveId)}/items/${itemId}`);
   if (!response.ok) await throwGraphError(response, 'Failed to get download link');
   const item = await response.json();
   return item['@microsoft.graph.downloadUrl'] || null;
+}
+
+/**
+ * Embeddable preview for a file — the same viewer SharePoint itself uses,
+ * short-lived and read-only, so papers open in a window inside the portal
+ * without being downloaded. Office documents, PDFs and images all work;
+ * anything the viewer cannot render falls back to the download link.
+ */
+async function previewItem(accessToken, driveId, itemId) {
+  const response = await graphFetch(accessToken, `${drivePath(driveId)}/items/${itemId}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) await throwGraphError(response, 'Failed to build a preview for this file');
+  const data = await response.json();
+  return data.getUrl || null;
 }
 
 async function deleteItem(accessToken, driveId, itemId) {
@@ -396,5 +412,6 @@ module.exports = {
   uploadDocument,
   getItem,
   getDownloadUrl,
+  previewItem,
   deleteItem,
 };

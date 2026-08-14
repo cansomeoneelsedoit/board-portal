@@ -192,6 +192,28 @@ router.delete('/connect', requireAdmin, async (req, res) => {
  * writes, and no file bytes pass through this service — a file opens in
  * SharePoint, which is also where its permissions are enforced.
  */
+/** Windowed preview for a Library file — same viewer as the per-meeting packs. */
+router.get('/preview', async (req, res) => {
+  try {
+    const { itemId } = req.query;
+    if (!itemId) return res.status(400).json({ error: 'itemId is required' });
+
+    const board = await resolveBoard(req.query.boardId);
+    if (!board?.sharepointDriveId) {
+      return res.status(400).json({ error: 'No SharePoint folder linked for this board' });
+    }
+
+    const { token } = await getGraphToken();
+    const [url, downloadUrl] = await Promise.all([
+      sp.previewItem(token, board.sharepointDriveId, String(itemId)),
+      sp.getDownloadUrl(token, board.sharepointDriveId, String(itemId)).catch(() => null),
+    ]);
+    res.json({ url, downloadUrl });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
 router.get('/browse', async (req, res) => {
   try {
     const board = await resolveBoard(req.query.boardId);

@@ -454,6 +454,33 @@ router.post('/:meetingId/upload', async (req, res) => {
   }
 });
 
+/**
+ * A windowed preview for a paper: the embeddable SharePoint viewer for
+ * library files, plus a direct download link as the fallback for anything
+ * the viewer cannot render. Read-only — editing stays on the SharePoint side.
+ */
+router.get('/:meetingId/preview', async (req, res) => {
+  try {
+    const { itemId } = req.query;
+    if (!itemId) return res.status(400).json({ error: 'itemId is required' });
+
+    const meeting = await loadMeeting(req.params.meetingId);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const driveId = meeting.sharepointDriveId || meeting.board?.sharepointDriveId;
+    if (!driveId) return res.status(400).json({ error: 'No SharePoint library linked to this meeting' });
+
+    const { token } = await getGraphToken();
+    const [url, downloadUrl] = await Promise.all([
+      sp.previewItem(token, driveId, String(itemId)),
+      sp.getDownloadUrl(token, driveId, String(itemId)).catch(() => null),
+    ]);
+    res.json({ url, downloadUrl });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
 /** Remove a locally-uploaded paper. SharePoint items are deleted via /documents. */
 router.delete('/:meetingId/items/:documentId', requireAdmin, async (req, res) => {
   try {
