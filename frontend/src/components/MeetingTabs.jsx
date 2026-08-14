@@ -511,29 +511,32 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
                 </div>
               ) : (
                 <>
-                  <p className="text-sm font-medium">
-                    {item.sourceFolderId ? (
-                      <button
-                        onClick={() => onOpenFolder?.(item)}
-                        className="text-left hover:underline"
-                        style={{ color: 'var(--bp-primary)' }}
-                        title="Open this item's folder in the board pack"
+                  {/* The whole item header is the way into its pack folder —
+                      click anywhere on the title or presenter line. */}
+                  <div
+                    onClick={item.sourceFolderId ? () => onOpenFolder?.(item) : undefined}
+                    className={item.sourceFolderId ? 'cursor-pointer group/agenda' : undefined}
+                    role={item.sourceFolderId ? 'button' : undefined}
+                    title={item.sourceFolderId ? "Open this item's folder in the board pack" : undefined}
+                  >
+                    <p className="text-sm font-medium">
+                      <span
+                        className={item.sourceFolderId ? 'group-hover/agenda:underline' : ''}
+                        style={item.sourceFolderId ? { color: 'var(--bp-primary)' } : undefined}
                       >
                         {item.title}
-                      </button>
-                    ) : (
-                      item.title
-                    )}
-                    {item.sourceFolderId && (
-                      <span className="bp-badge bp-badge--info ml-2" title="Built from the pack — click the title to open its folder">
-                        follows the pack
                       </span>
-                    )}
-                  </p>
-                  <p className="text-xs bp-muted mt-0.5">
-                    {presenterFor(item)}
-                    {item.duration ? ` · ${item.duration} min` : ''}
-                  </p>
+                      {item.sourceFolderId && (
+                        <span className="bp-badge bp-badge--info ml-2" title="Built from the pack — click to open its folder">
+                          follows the pack
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs bp-muted mt-0.5">
+                      {presenterFor(item)}
+                      {item.duration ? ` · ${item.duration} min` : ''}
+                    </p>
+                  </div>
                 </>
               )}
 
