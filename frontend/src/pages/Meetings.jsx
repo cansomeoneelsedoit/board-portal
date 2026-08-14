@@ -239,19 +239,20 @@ function seriesDates(startIso, freq, untilIso) {
 
 function NewMeetingModal({ onClose, onCreated }) {
   const { data: boards } = useApi(endpoints.boards())
+  const [boardId, setBoardId] = useState('')
+  // The body this meeting belongs to — its standing quorum rule (set in
+  // Board Settings) is pulled in the moment it is picked.
+  const selectedBoard = (boards || []).find((b) => b.id === boardId) || (boards || [])[0]
+  const { data: boardMembers } = useApi(selectedBoard ? `/board-members?boardId=${selectedBoard.id}` : null)
   const [form, setForm] = useState({
     title: '', date: '', time: '18:30', location: '', videoUrl: '', status: 'SCHEDULED',
   })
-  // The board's standing quorum rule (set in Board Settings) applies the
-  // moment the board is known; the fields stay editable so one sitting can
-  // differ without touching the rule itself.
   const [quorum, setQuorum] = useState({
     minimum: 4,
     requireChair: true,
     requireTreasurer: true,
     secretaryExOfficio: true,
   })
-  const [quorumFromBoard, setQuorumFromBoard] = useState(null)
   const [repeat, setRepeat] = useState({ freq: 'NONE', until: '' })
   const [proxiesAllowed, setProxiesAllowed] = useState(true)
   // Direct link to this meeting's SharePoint pack folder, set at scheduling.
@@ -261,10 +262,12 @@ function NewMeetingModal({ onClose, onCreated }) {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
-  // Apply the board's rules as defaults once the board is known.
+  // The selected body's rule fills the fields; picking a different body
+  // pulls in its rule instead. The fields stay editable, so one sitting can
+  // differ without touching the standing rule.
   useEffect(() => {
-    const b = boards?.[0]
-    if (!b || quorumFromBoard === b.id) return
+    const b = selectedBoard
+    if (!b) return
     const roles = String(b.quorumRequiredRoles || '').toUpperCase()
     const ex = String(b.quorumExOfficioRoles || '').toUpperCase()
     setQuorum({
@@ -273,13 +276,22 @@ function NewMeetingModal({ onClose, onCreated }) {
       requireTreasurer: roles.includes('TREASURER'),
       secretaryExOfficio: ex.includes('SECRETARY'),
     })
-    setQuorumFromBoard(b.id)
-  }, [boards, quorumFromBoard])
+  }, [selectedBoard?.id])
+
+  // Named members the rule requires, shown by name so the rule is legible.
+  const mandatoryNames = (() => {
+    const ids = new Set(String(selectedBoard?.quorumMandatoryUserIds || '').split(',').map((s) => s.trim()).filter(Boolean))
+    if (!ids.size) return []
+    return (boardMembers || [])
+      .filter((m) => !m.endedAt && ids.has(m.userId))
+      .map((m) => m.user?.name)
+      .filter(Boolean)
+  })()
 
   const submit = async (e) => {
     e.preventDefault()
-    const boardId = boards?.[0]?.id
-    if (!boardId) { setErr('No board exists to attach this meeting to.'); return }
+    const boardIdToUse = selectedBoard?.id
+    if (!boardIdToUse) { setErr('No board exists to attach this meeting to.'); return }
     if (repeat.freq !== 'NONE' && !repeat.until) {
       setErr('Choose a "repeat until" date for the series.')
       return
@@ -290,7 +302,7 @@ function NewMeetingModal({ onClose, onCreated }) {
       const start = `${form.date}T${form.time || '00:00'}`
       const dates = seriesDates(start, repeat.freq, repeat.until)
       const payload = (date) => ({
-        boardId,
+        boardId: boardIdToUse,
         title: form.title,
         date: date.toISOString(),
         location: form.location || null,
@@ -342,6 +354,18 @@ function NewMeetingModal({ onClose, onCreated }) {
         </div>
 
         <div className="p-5 space-y-4">
+          <label className="block">
+            <span className="text-sm font-medium">Board / Committee</span>
+            <select
+              value={selectedBoard?.id || ''}
+              onChange={(e) => setBoardId(e.target.value)}
+              className="bp-input w-full mt-1"
+              title="Which body this meeting belongs to — its quorum rule applies"
+            >
+              {(boards || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
+
           <label className="block">
             <span className="text-sm font-medium">Meeting Title</span>
             <input required value={form.title} onChange={set('title')} className="bp-input w-full mt-1"
@@ -407,9 +431,18 @@ function NewMeetingModal({ onClose, onCreated }) {
 
           <fieldset className="bp-card p-3 space-y-2">
             <legend className="text-sm font-medium px-1">Quorum for this meeting</legend>
-            {boards?.[0] && (
+            {selectedBoard && (
               <p className="text-xs bp-muted">
-                Using {boards[0].name}'s standing rule from Board Settings — adjust below for this sitting only.
+                {selectedBoard.name}'s standing rule, set in Board Settings — adjust below for this sitting only.
+              </p>
+            )}
+            {mandatoryNames.length > 0 && (
+              <p className="text-xs">
+                Named members who must be present:{' '}
+                {mandatoryNames.map((n) => (
+                  <span key={n} className="bp-badge bp-badge--info mr-1">{n}</span>
+                ))}
+                <span className="bp-subtle">(change in Board Settings)</span>
               </p>
             )}
             <label className="flex items-center justify-between gap-3">
