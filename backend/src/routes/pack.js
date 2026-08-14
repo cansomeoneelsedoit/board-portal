@@ -26,6 +26,27 @@ const loadMeeting = (id) =>
   prisma.meeting.findUnique({ where: { id }, include: { board: true } });
 
 /**
+ * Every file under a folder, sub-folders included, named with its path
+ * inside the item's folder ("TIP communication/Letter.docx") so the agenda
+ * shows where in the pack a paper sits. Depth-limited: a pack folder is a
+ * few levels at most, and a cycle should never hang the agenda.
+ */
+async function listFilesDeep(token, driveId, folderId, prefix = '', depth = 3) {
+  const out = [];
+  const entries = await sp.listChildren(token, driveId, folderId);
+  for (const entry of entries) {
+    if (entry.isFolder) {
+      if (depth > 0) {
+        out.push(...await listFilesDeep(token, driveId, entry.id, `${prefix}${entry.name}/`, depth - 1));
+      }
+    } else {
+      out.push({ ...entry, name: `${prefix}${entry.name}` });
+    }
+  }
+  return out;
+}
+
+/**
  * Folders available in the host platform's file vault, for the per-meeting
  * picker. The adapter is registered by the host at boot; standalone there is
  * none and we say so. (Declared before /:meetingId so it is never shadowed.)
@@ -148,8 +169,8 @@ router.get('/:meetingId/received', async (req, res) => {
         for (const entry of entries.filter((e) => e.isFolder)) {
           const number = agendaNumberFromFolderName(entry.name);
           if (number === null) continue;
-          const files = (await sp.listChildren(token, meetingDriveId, entry.id))
-            .filter((f) => !f.isFolder);
+          // The whole tree under the item's folder — sub-folders included.
+          const files = await listFilesDeep(token, meetingDriveId, entry.id);
           if (!files.length) {
             // Folder exists but nothing in it — the paper is awaited.
             if (!byNumber.has(number)) byNumber.set(number, { receivedAt: null, fileCount: 0, files: [] });
@@ -545,7 +566,8 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
         for (const entry of entries) {
           if (entry.isFolder) {
             const number = agendaNumberFromFolderName(entry.name);
-            const files = (await sp.listChildren(token, driveId, entry.id)).filter((f) => !f.isFolder);
+            // Sub-folders read too — a paper filed one level down still counts.
+            const files = await listFilesDeep(token, driveId, entry.id);
             for (const f of files) {
               if (READABLE.test(f.name) && (f.size || 0) <= MAX_BYTES) {
                 candidates.push({ name: f.name, number, read: spRead(f.id) });
