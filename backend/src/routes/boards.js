@@ -86,7 +86,10 @@ router.post('/', requireAdmin, async (req, res) => {
 
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
-    const { name, description, kind, parentId, shortName } = req.body || {};
+    const {
+      name, description, kind, parentId, shortName,
+      quorumMinimum, quorumRequiredRoles, quorumExOfficioRoles, quorumMandatoryUserIds,
+    } = req.body || {};
 
     // Nothing may be its own parent, directly or otherwise.
     if (parentId && parentId === req.params.id) {
@@ -114,6 +117,11 @@ router.put('/:id', requireAdmin, async (req, res) => {
         ...(kind !== undefined ? { kind: String(kind).toUpperCase() } : {}),
         ...(parentId !== undefined ? { parentId: parentId || null } : {}),
         ...(shortName !== undefined ? { shortName: shortName || null } : {}),
+        // The board's standing quorum rule — what every new meeting inherits.
+        ...(quorumMinimum !== undefined ? { quorumMinimum: Math.max(1, Number(quorumMinimum) || 1) } : {}),
+        ...(quorumRequiredRoles !== undefined ? { quorumRequiredRoles: String(quorumRequiredRoles || '') } : {}),
+        ...(quorumExOfficioRoles !== undefined ? { quorumExOfficioRoles: String(quorumExOfficioRoles || '') } : {}),
+        ...(quorumMandatoryUserIds !== undefined ? { quorumMandatoryUserIds: String(quorumMandatoryUserIds || '') } : {}),
       },
       include: { parent: { select: { id: true, name: true } } },
     });

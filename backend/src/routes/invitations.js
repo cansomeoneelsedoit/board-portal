@@ -25,6 +25,51 @@ router.get('/', async (req, res) => {
  * a no-op rather than an error — the caller should not have to care whether a
  * person was already on the list.
  */
+/**
+ * Invite someone from OUTSIDE the system — a guest speaker, an auditor,
+ * a visitor. They get a directory entry as a GUEST (name and email, so the
+ * invitation can reach them and the roll can list them) but no vote and, in
+ * the host platform, no portal access. If the email is already known, the
+ * existing person is invited rather than duplicated.
+ */
+router.post('/external', requireAdmin, async (req, res) => {
+  try {
+    const { meetingId, name, email } = req.body || {};
+    if (!meetingId || !name?.trim() || !email?.trim()) {
+      return res.status(400).json({ error: 'Meeting, name and email are required' });
+    }
+
+    const meeting = await prisma.meeting.findUnique({ where: { id: meetingId } });
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const cleanEmail = email.trim().toLowerCase();
+    let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          name: name.trim(),
+          email: cleanEmail,
+          role: 'GUEST',
+          initials: name.trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase(),
+        },
+      });
+    }
+
+    const existing = await prisma.invitation.findFirst({ where: { meetingId, userId: user.id } });
+    if (existing) {
+      return res.status(200).json({ invitation: existing, alreadyInvited: true });
+    }
+
+    const invitation = await prisma.invitation.create({
+      data: { meetingId, userId: user.id, role: 'GUEST', votingRights: false },
+      include: { user: true },
+    });
+    res.status(201).json({ invitation });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const { meetingId, userIds, role, votingRights } = req.body || {};

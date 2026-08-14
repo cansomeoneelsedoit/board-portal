@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   FolderOpen, Users, AlertTriangle, Vote as VoteIcon, ClipboardList, Check, X, Video, MapPin, Scale,
-  UserCheck, ArrowRight, Trash2, FileDown,
+  UserCheck, ArrowRight, Trash2, FileDown, Sparkles, Plus,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApi } from '../lib/useApi'
@@ -165,35 +165,7 @@ export default function MeetingTabs({ meeting, received, declarations, onChanged
       )}
 
       {tab === 'motions' && (
-        <div className="p-4">
-          {motions.length === 0 ? (
-            <DataState empty emptyLabel="No motions tabled" />
-          ) : (
-            <div className="bp-divide">
-              {motions.map((m) => {
-                const votes = m.votes || []
-                const forVotes = votes.filter((v) => v.vote === 'FOR').length
-                const against = votes.filter((v) => v.vote === 'AGAINST').length
-                const abstain = votes.filter((v) => v.vote === 'ABSTAIN').length
-                return (
-                  <div key={m.id} className="py-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold">{m.number}</p>
-                      <Badge status={m.status} />
-                      {m.result && m.result !== m.status && <Badge status={m.result} />}
-                    </div>
-                    <p className="text-sm mt-1">{m.title}</p>
-                    {votes.length > 0 && (
-                      <p className="text-xs bp-muted mt-1 tabular-nums">
-                        {forVotes} for · {against} against · {abstain} abstain
-                      </p>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        <MotionsPanel meeting={meeting} motions={motions} onChanged={onChanged} />
       )}
 
       {tab === 'minutes' && (
@@ -211,6 +183,130 @@ export default function MeetingTabs({ meeting, received, declarations, onChanged
               <MinutesBody content={minutes.content} />
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The motion list, plus the pack read for suggestions.
+ *
+ * Papers put their asks in recognisable shapes — "RECOMMENDATION: That the
+ * Board approve…" — so the pack itself can propose the motion list. The
+ * scan only suggests; nothing lands on the list until it is added.
+ */
+function MotionsPanel({ meeting, motions, onChanged }) {
+  const { capabilities } = useSession()
+  const canEdit = capabilities?.manageMeetings
+  const [busy, setBusy] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const [suggestions, setSuggestions] = useState(null)
+
+  const scanPack = async () => {
+    setBusy('scan')
+    setNotice(null)
+    try {
+      const { data } = await api.post(`/pack/${meeting.id}/scan-motions`)
+      setSuggestions(data.suggestions)
+      if (!data.suggestions.length) {
+        setNotice({
+          tone: 'info',
+          text: `Read ${data.scanned} paper${data.scanned === 1 ? '' : 's'} — nothing motion-shaped that is not already on the list.`,
+        })
+      }
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const addSuggestion = async (s, index) => {
+    setBusy(`add-${index}`)
+    setNotice(null)
+    try {
+      await api.post('/motions', {
+        meetingId: meeting.id,
+        number: `M${motions.length + 1}`,
+        title: s.text.length > 120 ? `${s.text.slice(0, 117)}…` : s.text,
+        description: s.text,
+        status: 'PENDING',
+      })
+      setSuggestions((list) => list.filter((_, i) => i !== index))
+      await onChanged?.()
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={scanPack} disabled={busy === 'scan'} className="bp-btn bp-btn-secondary">
+            <Sparkles size={14} /> {busy === 'scan' ? 'Reading the pack…' : 'Suggest motions from the pack'}
+          </button>
+          <span className="text-xs bp-muted">
+            Reads the papers for recommendations and resolutions — you choose what makes the list.
+          </span>
+        </div>
+      )}
+
+      {notice && <p className="text-sm" style={{ color: `var(--bp-${notice.tone}-fg)` }}>{notice.text}</p>}
+
+      {suggestions?.length > 0 && (
+        <div className="bp-card p-3 space-y-2" style={{ background: 'var(--bp-info-bg)' }}>
+          <p className="text-xs font-semibold uppercase tracking-wide bp-muted">
+            Suggested by the pack ({suggestions.length})
+          </p>
+          {suggestions.map((s, i) => (
+            <div key={`${s.file}-${i}`} className="flex items-start gap-3 py-1">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm">{s.text}</p>
+                <p className="text-xs bp-subtle mt-0.5">
+                  From {s.file}{s.number ? ` · agenda item ${s.number}` : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => addSuggestion(s, i)}
+                disabled={busy === `add-${i}`}
+                className="bp-btn bp-btn-primary shrink-0"
+              >
+                <Plus size={13} /> Add
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {motions.length === 0 ? (
+        <DataState empty emptyLabel="No motions tabled" />
+      ) : (
+        <div className="bp-divide">
+          {motions.map((m) => {
+            const votes = m.votes || []
+            const forVotes = votes.filter((v) => v.vote === 'FOR').length
+            const against = votes.filter((v) => v.vote === 'AGAINST').length
+            const abstain = votes.filter((v) => v.vote === 'ABSTAIN').length
+            return (
+              <div key={m.id} className="py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold">{m.number}</p>
+                  <Badge status={m.status} />
+                  {m.result && m.result !== m.status && <Badge status={m.result} />}
+                </div>
+                <p className="text-sm mt-1">{m.title}</p>
+                {votes.length > 0 && (
+                  <p className="text-xs bp-muted mt-1 tabular-nums">
+                    {forVotes} for · {against} against · {abstain} abstain
+                  </p>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -789,6 +885,14 @@ function QuorumPanel({ meetingId }) {
           <div key={r.role} className="py-2.5 flex items-center justify-between">
             <span className="text-sm">{r.role.charAt(0) + r.role.slice(1).toLowerCase()} present</span>
             {r.satisfied
+              ? <span className="bp-badge bp-badge--success"><Check size={11} className="mr-1" />Yes</span>
+              : <span className="bp-badge bp-badge--danger"><X size={11} className="mr-1" />No</span>}
+          </div>
+        ))}
+        {(q.mandatory || []).map((m) => (
+          <div key={m.userId} className="py-2.5 flex items-center justify-between">
+            <span className="text-sm">{m.member} present <span className="bp-subtle">(named in the quorum rule)</span></span>
+            {m.satisfied
               ? <span className="bp-badge bp-badge--success"><Check size={11} className="mr-1" />Yes</span>
               : <span className="bp-badge bp-badge--danger"><X size={11} className="mr-1" />No</span>}
           </div>

@@ -138,8 +138,13 @@ export default function MeetingInvitations({ meetingId }) {
       />
 
       {adding && (
-        <div className="p-4" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
+        <div className="p-4 space-y-3" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
           <MemberSearch excludeMeetingId={meetingId} onConfirm={add} confirmLabel="Invite" />
+          <ExternalInvite meetingId={meetingId} onDone={async (msg) => {
+            setNotice({ tone: 'success', text: msg })
+            setAdding(false)
+            await refetch()
+          }} />
         </div>
       )}
 
@@ -201,5 +206,65 @@ export default function MeetingInvitations({ meetingId }) {
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * Invite someone from outside the system — a guest speaker, an auditor.
+ * They get the invitation (date, time, place) and a spot on the roll as a
+ * guest, but no vote and no portal access in the host platform.
+ */
+function ExternalInvite({ meetingId, onDone }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({ name: '', email: '' })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setErr(null)
+    try {
+      const { data } = await api.post('/invitations/external', { meetingId, ...form })
+      await onDone(data.alreadyInvited
+        ? `${form.name} is already on the invitation list`
+        : `${form.name} invited as a guest`)
+      setForm({ name: '', email: '' })
+      setOpen(false)
+    } catch (ex) {
+      setErr(ex.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="bp-link text-sm">
+        Not in the system? Invite someone from outside — they get the invitation, not portal access.
+      </button>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="bp-card p-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+      <label className="block">
+        <span className="text-xs bp-muted">Name</span>
+        <input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          className="bp-input w-full mt-1" placeholder="Guest speaker" />
+      </label>
+      <label className="block">
+        <span className="text-xs bp-muted">Email</span>
+        <input required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+          className="bp-input w-full mt-1" placeholder="name@example.com" />
+        {err && <p className="text-xs mt-1" style={{ color: 'var(--bp-danger-fg)' }}>{err}</p>}
+      </label>
+      <div className="flex gap-2">
+        <button type="submit" disabled={saving} className="bp-btn bp-btn-primary">
+          {saving ? 'Inviting…' : 'Invite as guest'}
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="bp-btn bp-btn-secondary">Cancel</button>
+      </div>
+    </form>
   )
 }

@@ -68,6 +68,9 @@ model Board {
   quorumMinimum        Int    @default(4)
   quorumRequiredRoles  String @default("CHAIR,TREASURER")
   quorumExOfficioRoles String @default("SECRETARY")
+  // Named members who MUST be present, on top of any role rule — for boards
+  // whose quorum names people rather than offices. Comma-separated user ids.
+  quorumMandatoryUserIds String @default("")
   // Tenant seam: when this app runs as a module inside a MasonsView/HotelView
   // vertical, orgKey holds the host organisation/hotel identifier so boards can
   // be scoped per tenant. Null when running standalone.
@@ -149,6 +152,7 @@ model Meeting {
   quorumMinimum        Int?
   quorumRequiredRoles  String?
   quorumExOfficioRoles String?
+  quorumMandatoryUserIds String?
   
   board       Board        @relation(fields: [boardId], references: [id])
   agendaItems AgendaItem[]

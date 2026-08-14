@@ -49,6 +49,7 @@ export default function Admin() {
         subtitle="Board details, who sits on it, and where the papers live"
       />
       <Bodies />
+      <QuorumRules />
       <BoardMembers />
       <Directory />
       <Card>
@@ -244,6 +245,158 @@ function BodyRow({ body: b, busy, onRemove, onSaved }) {
         </>
       )}
     </div>
+  )
+}
+
+/* ----------------------------------------------------------- quorum rules */
+
+/**
+ * Each body's standing quorum rule, applied automatically when a meeting is
+ * scheduled for it (and still overridable on the meeting itself).
+ *
+ * A rule can work two ways, or both: by NUMBERS AND OFFICES (minimum count,
+ * must include the Chair/Treasurer), or by NAMING PEOPLE who must be present
+ * regardless of office. Ticking members below adds them as named requirements.
+ */
+function QuorumRules() {
+  const { data: bodies } = useApi('/boards')
+  const [boardId, setBoardId] = useState('')
+  const board = (bodies || []).find((b) => b.id === boardId) || (bodies || [])[0]
+  const membersPath = board ? `/board-members?boardId=${board.id}` : null
+  const { data: members } = useApi(membersPath)
+
+  const [draft, setDraft] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState(null)
+
+  // Load the selected board's rule into the editor whenever the board changes.
+  useEffect(() => {
+    if (!board) return
+    const roles = String(board.quorumRequiredRoles || '').toUpperCase()
+    const ex = String(board.quorumExOfficioRoles || '').toUpperCase()
+    setDraft({
+      boardId: board.id,
+      minimum: board.quorumMinimum ?? 4,
+      requireChair: roles.includes('CHAIR'),
+      requireTreasurer: roles.includes('TREASURER'),
+      secretaryExOfficio: ex.includes('SECRETARY'),
+      mandatory: new Set(String(board.quorumMandatoryUserIds || '').split(',').map((s) => s.trim()).filter(Boolean)),
+    })
+    setNotice(null)
+  }, [board?.id, board?.quorumMinimum, board?.quorumRequiredRoles, board?.quorumMandatoryUserIds])
+
+  const toggleMandatory = (userId) =>
+    setDraft((d) => {
+      const next = new Set(d.mandatory)
+      if (next.has(userId)) next.delete(userId)
+      else next.add(userId)
+      return { ...d, mandatory: next }
+    })
+
+  const save = async () => {
+    if (!draft) return
+    setSaving(true)
+    setNotice(null)
+    try {
+      await api.put(`/boards/${draft.boardId}`, {
+        quorumMinimum: Number(draft.minimum) || 1,
+        quorumRequiredRoles: [
+          draft.requireChair ? 'CHAIR' : null,
+          draft.requireTreasurer ? 'TREASURER' : null,
+        ].filter(Boolean).join(','),
+        quorumExOfficioRoles: draft.secretaryExOfficio ? 'SECRETARY' : '',
+        quorumMandatoryUserIds: [...draft.mandatory].join(','),
+      })
+      setNotice({ tone: 'success', text: 'Quorum rule saved — new meetings for this body start from it.' })
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const currentMembers = (members || []).filter((m) => !m.endedAt)
+
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="flex items-center gap-2"><ShieldAlert size={16} /> Quorum rules</span>}
+        action={
+          <select
+            value={board?.id || ''}
+            onChange={(e) => setBoardId(e.target.value)}
+            className="bp-input text-xs py-1.5"
+            title="Which body this rule belongs to"
+          >
+            {(bodies || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        }
+      />
+
+      {draft && (
+        <div className="p-4 space-y-3">
+          <p className="text-xs bp-muted">
+            Applied automatically when a meeting is scheduled for {board?.name} — each sitting can still
+            override it on the schedule form.
+          </p>
+
+          <label className="flex items-center justify-between gap-3 max-w-md">
+            <span className="text-sm">Minimum counting members</span>
+            <input type="number" min="1" max="50" value={draft.minimum}
+              onChange={(e) => setDraft((d) => ({ ...d, minimum: e.target.value }))}
+              className="bp-input w-20 text-center" />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={draft.requireChair}
+              onChange={(e) => setDraft((d) => ({ ...d, requireChair: e.target.checked }))} />
+            Must include the Chair
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={draft.requireTreasurer}
+              onChange={(e) => setDraft((d) => ({ ...d, requireTreasurer: e.target.checked }))} />
+            Must include the Treasurer
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={draft.secretaryExOfficio}
+              onChange={(e) => setDraft((d) => ({ ...d, secretaryExOfficio: e.target.checked }))} />
+            Secretary attends ex officio (not counted)
+          </label>
+
+          <div>
+            <p className="text-sm font-medium mt-2">Named members who must be present</p>
+            <p className="text-xs bp-muted mb-2">
+              For rules that name people rather than offices — tick anyone whose presence is required.
+            </p>
+            {currentMembers.length === 0 && (
+              <p className="text-sm bp-muted">Nobody is appointed to this body yet.</p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {currentMembers.map((m) => (
+                <label key={m.id}
+                  className="flex items-center gap-2 text-sm bp-card px-2.5 py-1.5 cursor-pointer"
+                  style={draft.mandatory.has(m.userId)
+                    ? { background: 'var(--bp-success-bg)', color: 'var(--bp-success-fg)' }
+                    : undefined}>
+                  <input type="checkbox" checked={draft.mandatory.has(m.userId)}
+                    onChange={() => toggleMandatory(m.userId)} />
+                  {m.user?.name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {notice && (
+            <p className="text-sm" style={{ color: `var(--bp-${notice.tone}-fg)` }}>{notice.text}</p>
+          )}
+
+          <div className="flex justify-end">
+            <button onClick={save} disabled={saving} className="bp-btn bp-btn-primary">
+              {saving ? 'Saving…' : 'Save quorum rule'}
+            </button>
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }
 

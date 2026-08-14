@@ -101,7 +101,23 @@ router.get('/roll/:meetingId', async (req, res) => {
       satisfied: present.some((r) => String(r.role || '').toUpperCase() === role),
     }));
 
-    const met = counted.length >= minimum && requirements.every((r) => r.satisfied);
+    // Boards whose rule names PEOPLE rather than offices: each mandatory
+    // member must be in the room, on top of any role requirement.
+    const mandatoryIds = String(meeting?.quorumMandatoryUserIds ?? board?.quorumMandatoryUserIds ?? '')
+      .split(',').map((s) => s.trim()).filter(Boolean);
+    const mandatoryUsers = mandatoryIds.length
+      ? await prisma.user.findMany({ where: { id: { in: mandatoryIds } }, select: { id: true, name: true } })
+      : [];
+    const mandatory = mandatoryUsers.map((u) => ({
+      userId: u.id,
+      member: u.name,
+      satisfied: present.some((r) => r.userId === u.id),
+    }));
+
+    const met =
+      counted.length >= minimum &&
+      requirements.every((r) => r.satisfied) &&
+      mandatory.every((m) => m.satisfied);
 
     res.json({
       meetingId,
@@ -124,6 +140,7 @@ router.get('/roll/:meetingId', async (req, res) => {
         exOfficioRoles: [...exOfficio],
         exOfficioPresent: present.length - counted.length,
         requirements,
+        mandatory,
         // Plain-language verdict for the tab.
         message: met
           ? `Quorum met — ${counted.length} counting member${counted.length === 1 ? '' : 's'} present, all required officers in the room.`
@@ -132,6 +149,7 @@ router.get('/roll/:meetingId', async (req, res) => {
                 ? `Only ${counted.length} of the ${minimum} counting members required are present.`
                 : null,
               ...requirements.filter((r) => !r.satisfied).map((r) => `The ${r.role.toLowerCase()} is not present.`),
+              ...mandatory.filter((m) => !m.satisfied).map((m) => `${m.member} must be present and is not.`),
             ].filter(Boolean).join(' '),
       },
     });

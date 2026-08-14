@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Calendar, Plus, Search, Video, MapPin, Users, ChevronRight, ChevronLeft, X } from 'lucide-react'
 import api, { endpoints } from '../lib/api'
@@ -209,19 +209,50 @@ export default function Meetings() {
   )
 }
 
+// How often a recurring meeting repeats, in days (months/years step by date).
+const REPEATS = [
+  { id: 'NONE', label: 'Does not repeat' },
+  { id: 'WEEKLY', label: 'Weekly — same day each week' },
+  { id: 'FORTNIGHTLY', label: 'Fortnightly — every two weeks' },
+  { id: 'MONTHLY', label: 'Monthly — same date each month' },
+  { id: 'YEARLY', label: 'Yearly — same date each year' },
+]
+
+/** All the dates a repeat rule produces, first sitting included. Capped at 52. */
+function seriesDates(startIso, freq, untilIso) {
+  const dates = [new Date(startIso)]
+  if (freq === 'NONE' || !untilIso) return dates
+  const until = new Date(`${untilIso}T23:59:59`)
+  let cursor = new Date(startIso)
+  while (dates.length < 52) {
+    const next = new Date(cursor)
+    if (freq === 'WEEKLY') next.setDate(next.getDate() + 7)
+    else if (freq === 'FORTNIGHTLY') next.setDate(next.getDate() + 14)
+    else if (freq === 'MONTHLY') next.setMonth(next.getMonth() + 1)
+    else if (freq === 'YEARLY') next.setFullYear(next.getFullYear() + 1)
+    if (next > until) break
+    dates.push(next)
+    cursor = next
+  }
+  return dates
+}
+
 function NewMeetingModal({ onClose, onCreated }) {
   const { data: boards } = useApi(endpoints.boards())
   const [form, setForm] = useState({
     title: '', date: '', time: '18:30', location: '', videoUrl: '', status: 'SCHEDULED',
   })
-  // Quorum rule for this meeting. Defaults to the AF&AM Inc rule; saved on the
-  // meeting so one sitting can differ from the board's standing rule.
+  // The board's standing quorum rule (set in Board Settings) applies the
+  // moment the board is known; the fields stay editable so one sitting can
+  // differ without touching the rule itself.
   const [quorum, setQuorum] = useState({
     minimum: 4,
     requireChair: true,
     requireTreasurer: true,
     secretaryExOfficio: true,
   })
+  const [quorumFromBoard, setQuorumFromBoard] = useState(null)
+  const [repeat, setRepeat] = useState({ freq: 'NONE', until: '' })
   const [proxiesAllowed, setProxiesAllowed] = useState(true)
   // Direct link to this meeting's SharePoint pack folder, set at scheduling.
   const [packUrl, setPackUrl] = useState('')
@@ -230,17 +261,38 @@ function NewMeetingModal({ onClose, onCreated }) {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
+  // Apply the board's rules as defaults once the board is known.
+  useEffect(() => {
+    const b = boards?.[0]
+    if (!b || quorumFromBoard === b.id) return
+    const roles = String(b.quorumRequiredRoles || '').toUpperCase()
+    const ex = String(b.quorumExOfficioRoles || '').toUpperCase()
+    setQuorum({
+      minimum: b.quorumMinimum ?? 4,
+      requireChair: roles.includes('CHAIR'),
+      requireTreasurer: roles.includes('TREASURER'),
+      secretaryExOfficio: ex.includes('SECRETARY'),
+    })
+    setQuorumFromBoard(b.id)
+  }, [boards, quorumFromBoard])
+
   const submit = async (e) => {
     e.preventDefault()
     const boardId = boards?.[0]?.id
     if (!boardId) { setErr('No board exists to attach this meeting to.'); return }
+    if (repeat.freq !== 'NONE' && !repeat.until) {
+      setErr('Choose a "repeat until" date for the series.')
+      return
+    }
     setSaving(true)
     setErr(null)
     try {
-      const { data: createdMeeting } = await api.post(endpoints.meetings(), {
+      const start = `${form.date}T${form.time || '00:00'}`
+      const dates = seriesDates(start, repeat.freq, repeat.until)
+      const payload = (date) => ({
         boardId,
         title: form.title,
-        date: new Date(`${form.date}T${form.time || '00:00'}`).toISOString(),
+        date: date.toISOString(),
         location: form.location || null,
         videoUrl: form.videoUrl || null,
         status: form.status,
@@ -252,6 +304,15 @@ function NewMeetingModal({ onClose, onCreated }) {
         quorumExOfficioRoles: quorum.secretaryExOfficio ? 'SECRETARY' : '',
         proxiesAllowed,
       })
+
+      const { data: createdMeeting } = await api.post(endpoints.meetings(), payload(dates[0]))
+      // Later sittings of the series: same settings, their own dates. Each
+      // finds its own pack folder by meeting date; only the first can take
+      // the pasted folder pin.
+      for (const d of dates.slice(1)) {
+        await api.post(endpoints.meetings(), payload(d))
+      }
+
       // Pin the pack folder to the new meeting. A bad URL should not lose the
       // meeting that was just created - report it and let Edit fix the link.
       if (packUrl.trim()) {
@@ -287,8 +348,6 @@ function NewMeetingModal({ onClose, onCreated }) {
               placeholder="e.g. Board Meeting - Q3 Review" />
           </label>
 
-          <PackFolderField value={packUrl} onChange={setPackUrl} />
-
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="text-sm font-medium">Date</span>
@@ -299,6 +358,32 @@ function NewMeetingModal({ onClose, onCreated }) {
               <input type="time" value={form.time} onChange={set('time')} className="bp-input w-full mt-1" />
             </label>
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-sm font-medium">Repeats</span>
+              <select value={repeat.freq} onChange={(e) => setRepeat((r) => ({ ...r, freq: e.target.value }))}
+                className="bp-input w-full mt-1">
+                {REPEATS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            </label>
+            {repeat.freq !== 'NONE' && (
+              <label className="block">
+                <span className="text-sm font-medium">Until</span>
+                <input type="date" required value={repeat.until}
+                  onChange={(e) => setRepeat((r) => ({ ...r, until: e.target.value }))}
+                  className="bp-input w-full mt-1" />
+              </label>
+            )}
+          </div>
+          {repeat.freq !== 'NONE' && form.date && repeat.until && (
+            <p className="text-xs bp-muted">
+              Creates {seriesDates(`${form.date}T${form.time || '00:00'}`, repeat.freq, repeat.until).length} meetings,
+              each finding its own pack folder by date.
+            </p>
+          )}
+
+          <PackFolderField value={packUrl} onChange={setPackUrl} />
 
           <label className="block">
             <span className="text-sm font-medium">Location / Venue</span>
@@ -322,6 +407,11 @@ function NewMeetingModal({ onClose, onCreated }) {
 
           <fieldset className="bp-card p-3 space-y-2">
             <legend className="text-sm font-medium px-1">Quorum for this meeting</legend>
+            {boards?.[0] && (
+              <p className="text-xs bp-muted">
+                Using {boards[0].name}'s standing rule from Board Settings — adjust below for this sitting only.
+              </p>
+            )}
             <label className="flex items-center justify-between gap-3">
               <span className="text-sm">Minimum counting members</span>
               <input

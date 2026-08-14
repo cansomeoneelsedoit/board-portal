@@ -239,6 +239,8 @@ function EditMeeting({ meeting, onClose, onSaved }) {
               <input type="time" value={form.time} onChange={set('time')} className="bp-input w-full mt-1" />
             </label>
           </div>
+          <PackFolderField value={packUrl} onChange={setPackUrl} />
+
           <label className="block">
             <span className="text-sm font-medium">Location / Venue</span>
             <VenueInput value={form.location} onChange={set('location')} placeholder="Pick a venue or type an address" />
@@ -247,8 +249,6 @@ function EditMeeting({ meeting, onClose, onSaved }) {
             <span className="text-sm font-medium">Video Link</span>
             <input value={form.videoUrl} onChange={set('videoUrl')} className="bp-input w-full mt-1" placeholder="https://…" />
           </label>
-
-          <PackFolderField value={packUrl} onChange={setPackUrl} />
           <label className="block">
             <span className="text-sm font-medium">Status</span>
             <select value={form.status} onChange={set('status')} className="bp-input w-full mt-1">

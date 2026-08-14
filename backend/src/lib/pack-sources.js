@@ -280,4 +280,5 @@ module.exports = {
   registerVaultAdapter,
   hasVaultAdapter,
   meetingUploadDir,
+  UPLOAD_DIR,
 };

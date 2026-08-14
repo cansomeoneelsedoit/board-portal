@@ -1,6 +1,9 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../lib/prisma');
 const packs = require('../lib/pack-sources');
+const { textFromFile, findMotions } = require('../lib/motion-scan');
 const sp = require('../lib/graph/sharepoint');
 const { getGraphToken } = require('../lib/graph/auth');
 const {
@@ -498,6 +501,97 @@ router.post('/:meetingId/upload', async (req, res) => {
     });
 
     res.status(201).json({ source, document });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/**
+ * Read the pack for suggested motions.
+ *
+ * Papers put their asks in recognisable shapes — "RECOMMENDATION: That the
+ * Board…", "It is moved that…" — so the pack itself can propose the motion
+ * list. Returns suggestions for review; nothing is added until the
+ * secretary says so.
+ */
+router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
+  try {
+    const meeting = await loadMeeting(req.params.meetingId);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const READABLE = /\.(docx|txt|md|csv)$/i;
+    const MAX_BYTES = 15 * 1024 * 1024;
+    // [{ name, number, read: () => Promise<Buffer> }]
+    const candidates = [];
+
+    const board = meeting.board;
+    const driveId = meeting.sharepointDriveId || board?.sharepointDriveId;
+    if (driveId) {
+      const { token } = await getGraphToken();
+      let folderId = meeting.sharepointFolderId;
+      if (!folderId && board?.sharepointDriveId && board?.sharepointFolderId) {
+        const children = await sp.listChildren(token, board.sharepointDriveId, board.sharepointFolderId);
+        folderId = matchMeetingFolder(children.filter((c) => c.isFolder), meeting)?.id || null;
+      }
+      if (folderId) {
+        const spRead = (itemId) => async () => {
+          const url = await sp.getDownloadUrl(token, driveId, itemId);
+          if (!url) throw new Error('no download url');
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`download failed (${r.status})`);
+          return Buffer.from(await r.arrayBuffer());
+        };
+        const entries = await sp.listChildren(token, driveId, folderId);
+        for (const entry of entries) {
+          if (entry.isFolder) {
+            const number = agendaNumberFromFolderName(entry.name);
+            const files = (await sp.listChildren(token, driveId, entry.id)).filter((f) => !f.isFolder);
+            for (const f of files) {
+              if (READABLE.test(f.name) && (f.size || 0) <= MAX_BYTES) {
+                candidates.push({ name: f.name, number, read: spRead(f.id) });
+              }
+            }
+          } else if (READABLE.test(entry.name) && (entry.size || 0) <= MAX_BYTES) {
+            candidates.push({ name: entry.name, number: null, read: spRead(entry.id) });
+          }
+        }
+      }
+    }
+
+    // Papers uploaded straight into the portal.
+    const docs = await prisma.document.findMany({
+      where: { meetingId: meeting.id, source: 'LOCAL' },
+    });
+    for (const d of docs) {
+      if (!d.path || !READABLE.test(d.filename || d.name)) continue;
+      const full = path.join(packs.UPLOAD_DIR, d.path);
+      candidates.push({
+        name: d.name,
+        number: null,
+        read: async () => fs.promises.readFile(full),
+      });
+    }
+
+    // Motions already on the list never come back as suggestions.
+    const key = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 120);
+    const existing = await prisma.motion.findMany({ where: { meetingId: meeting.id } });
+    const seen = new Set(existing.flatMap((m) => [key(m.title), key(m.description || '')]));
+
+    const suggestions = [];
+    let scanned = 0;
+    for (const c of candidates) {
+      let buffer;
+      try { buffer = await c.read(); } catch { continue; }
+      scanned += 1;
+      for (const text of findMotions(textFromFile(c.name, buffer))) {
+        const k = key(text);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        suggestions.push({ text, file: c.name, number: c.number });
+      }
+    }
+
+    res.json({ scanned, suggestions: suggestions.slice(0, 50) });
   } catch (error) {
     handle(res, error);
   }
