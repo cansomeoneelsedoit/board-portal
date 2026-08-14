@@ -185,9 +185,11 @@ function ReceivedStamp({ info }) {
 /** Edit the meeting's name, times and location in place. */
 function EditMeeting({ meeting, onClose, onSaved }) {
   const { capabilities } = useSession()
+  const { data: boards } = useApi('/boards')
   const d = meeting.date ? new Date(meeting.date) : null
   const pad = (n) => String(n).padStart(2, '0')
   const [form, setForm] = useState({
+    boardId: meeting.boardId || '',
     title: meeting.title || '',
     date: d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '',
     time: d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '18:30',
@@ -208,6 +210,7 @@ function EditMeeting({ meeting, onClose, onSaved }) {
     setSaving(true)
     setError(null)
     try {
+      const movingBoards = form.boardId && form.boardId !== meeting.boardId
       await api.put(`/meetings/${meeting.id}`, {
         title: form.title,
         date: new Date(`${form.date}T${form.time || '00:00'}`).toISOString(),
@@ -215,7 +218,22 @@ function EditMeeting({ meeting, onClose, onSaved }) {
         videoUrl: form.videoUrl || null,
         status: form.status,
         proxiesAllowed,
+        ...(movingBoards
+          ? {
+              // A meeting moved to another body follows THAT body's quorum
+              // rule — the old sitting's override does not travel with it.
+              boardId: form.boardId,
+              quorumMinimum: null,
+              quorumRequiredRoles: null,
+              quorumExOfficioRoles: null,
+              quorumMandatoryUserIds: null,
+            }
+          : {}),
       })
+      // The new board's members join the roll (existing invitations stay).
+      if (movingBoards) {
+        await api.post('/invitations/board', { meetingId: meeting.id }).catch(() => {})
+      }
       if (packUrl.trim() !== initialPackUrl.trim()) {
         if (packUrl.trim()) {
           await api.post(`/sharepoint/pack/${meeting.id}`, { url: packUrl.trim() })
@@ -251,6 +269,13 @@ function EditMeeting({ meeting, onClose, onSaved }) {
           <button type="button" onClick={onClose} className="bp-subtle hover:text-[var(--bp-fg)]"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-4">
+          <label className="block">
+            <span className="text-sm font-medium">Board / Committee</span>
+            <select value={form.boardId} onChange={set('boardId')} className="bp-input w-full mt-1"
+              title="Moving the meeting to another body applies that body's quorum rule and invites its members">
+              {(boards || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
           <label className="block">
             <span className="text-sm font-medium">Meeting Title</span>
             <input required value={form.title} onChange={set('title')} className="bp-input w-full mt-1" />
