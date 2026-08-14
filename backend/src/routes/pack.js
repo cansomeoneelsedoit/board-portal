@@ -105,8 +105,14 @@ router.get('/:meetingId/received', async (req, res) => {
       byNumber.set(number, cur);
     };
 
+    // A paper's received stamp is when it FIRST arrived, and it locks — a
+    // minor edit to a file never rewrites when it was received. Edits show as
+    // a separate "updated" time instead, and only when the file changed.
+    const UPDATED_SLACK_MS = 60 * 1000;
+
     // Papers uploaded into the portal always count, whatever the pack source —
     // a meeting can follow a SharePoint pack AND have papers tabled directly.
+    // Received is the upload moment; a replaced file shows as updated.
     const docs = await prisma.document.findMany({
       where: { meetingId: meeting.id, agendaItemId: { not: null } },
     });
@@ -114,8 +120,12 @@ router.get('/:meetingId/received', async (req, res) => {
     for (const d of docs) {
       const number = itemNumber.get(d.agendaItemId);
       if (number === undefined) continue;
-      const at = d.modifiedAt || d.createdAt;
-      stamp(number, at, { name: d.name, receivedAt: at });
+      const receivedAt = d.createdAt;
+      const updatedAt =
+        d.modifiedAt && new Date(d.modifiedAt) - new Date(receivedAt) > UPDATED_SLACK_MS
+          ? d.modifiedAt
+          : null;
+      stamp(number, receivedAt, { name: d.name, receivedAt, updatedAt });
     }
 
     const source = packs.effectiveSource(meeting, meeting.board);
@@ -127,6 +137,9 @@ router.get('/:meetingId/received', async (req, res) => {
         const children = await sp.listChildren(token, board.sharepointDriveId, board.sharepointFolderId);
         folderId = matchMeetingFolder(children.filter((c) => c.isFolder), meeting)?.id || null;
       }
+
+      // What the pack holds right now, folder by folder.
+      const spFiles = [];
       if (folderId) {
         const entries = await sp.listChildren(token, meetingDriveId, folderId);
         for (const entry of entries.filter((e) => e.isFolder)) {
@@ -139,8 +152,44 @@ router.get('/:meetingId/received', async (req, res) => {
             if (!byNumber.has(number)) byNumber.set(number, { receivedAt: null, fileCount: 0, files: [] });
             continue;
           }
-          for (const f of files) stamp(number, f.modifiedAt, { name: f.name, receivedAt: f.modifiedAt });
+          for (const f of files) spFiles.push({ number, file: f });
         }
+      }
+
+      // First sighting locks the received stamp; later sightings only move
+      // the file's last-modified time when SharePoint says it changed.
+      const receipts = new Map(
+        (await prisma.packFileReceipt.findMany({ where: { meetingId: meeting.id } }))
+          .map((r) => [r.itemId, r])
+      );
+      const newReceipts = [];
+      for (const { number, file } of spFiles) {
+        const modified = file.modifiedAt ? new Date(file.modifiedAt) : new Date();
+        let receipt = receipts.get(file.id);
+        if (!receipt) {
+          receipt = {
+            meetingId: meeting.id,
+            itemId: file.id,
+            name: file.name,
+            receivedAt: modified,
+            lastModifiedAt: modified,
+          };
+          newReceipts.push(receipt);
+        } else if (modified > new Date(receipt.lastModifiedAt)) {
+          await prisma.packFileReceipt.update({
+            where: { id: receipt.id },
+            data: { lastModifiedAt: modified, name: file.name },
+          });
+          receipt.lastModifiedAt = modified;
+        }
+        const updatedAt =
+          new Date(receipt.lastModifiedAt) - new Date(receipt.receivedAt) > UPDATED_SLACK_MS
+            ? receipt.lastModifiedAt
+            : null;
+        stamp(number, receipt.receivedAt, { name: file.name, receivedAt: receipt.receivedAt, updatedAt });
+      }
+      if (newReceipts.length) {
+        await prisma.packFileReceipt.createMany({ data: newReceipts, skipDuplicates: true });
       }
     }
 

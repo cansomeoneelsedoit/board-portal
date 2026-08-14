@@ -417,6 +417,7 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
                   key: `s-${f.name}`,
                   name: f.name,
                   receivedAt: f.receivedAt,
+                  updatedAt: f.updatedAt || null,
                   status: f.status,
                   size: docs.find((d) => d.name === f.name)?.size,
                 }))
@@ -426,7 +427,7 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
                     .filter((d) => !stamped.some((f) => f.name === d.name))
                     .map((d) => ({
                       key: `d-${d.id}`, name: d.name, size: d.size,
-                      receivedAt: d.modifiedAt || d.createdAt, status: null,
+                      receivedAt: d.createdAt || d.modifiedAt, updatedAt: null, status: null,
                     })),
                 ]
                 if (!files.length) return null
@@ -437,8 +438,13 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
                         <span className="truncate">{f.name}</span>
                         {f.size ? <span className="bp-subtle">{fmtBytes(f.size)}</span> : null}
                         {f.receivedAt && (
-                          <span className="bp-subtle" title="When this paper was received">
+                          <span className="bp-subtle" title="When this paper first arrived — a later edit never changes this">
                             received {fmtDateTime(f.receivedAt)}
+                          </span>
+                        )}
+                        {f.updatedAt && (
+                          <span style={{ color: 'var(--bp-warning-fg)' }} title="The file has changed since it was received">
+                            updated {fmtDateTime(f.updatedAt)}
                           </span>
                         )}
                         {f.status && (

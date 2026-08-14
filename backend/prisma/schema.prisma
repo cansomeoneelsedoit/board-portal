@@ -184,6 +184,25 @@ model AgendaItem {
 /// only the pointer plus the governance metadata SharePoint has no concept of
 /// (which agenda item it belongs to, tags). `path` is used only by legacy
 /// LOCAL documents written to disk before the SharePoint integration.
+/// The arrival record for a pack file.
+///
+/// A paper's "received" stamp is the moment we FIRST saw it in the pack, and
+/// it locks: a later edit to the file never rewrites when it arrived. Edits
+/// only move lastModifiedAt, which the agenda shows as a separate "updated"
+/// time — and only when the file genuinely changed.
+model PackFileReceipt {
+  id             String   @id @default(uuid())
+  meetingId      String
+  itemId         String // SharePoint item id — stable across edits and renames
+  name           String
+  receivedAt     DateTime // locked at first sighting
+  lastModifiedAt DateTime // tracks the file's SharePoint modified time
+  createdAt      DateTime @default(now())
+
+  @@unique([meetingId, itemId])
+  @@index([meetingId])
+}
+
 model Document {
   id           String   @id @default(uuid())
   agendaItemId String?
