@@ -148,6 +148,10 @@ model Meeting {
   /// Asked when the meeting is scheduled; proxies register on the meeting page.
   proxiesAllowed Boolean @default(true)
 
+  // Hand-ordered agenda: when locked, a sync updates titles but never moves
+  // items, and anything new — synced or added — appends below the last item.
+  agendaOrderLocked Boolean @default(false)
+
   // Per-meeting quorum overrides; null inherits the board's rule.
   quorumMinimum        Int?
   quorumRequiredRoles  String?

@@ -320,6 +320,14 @@ function MotionsPanel({ meeting, motions, onChanged }) {
 function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpenFolder }) {
   const { capabilities } = useSession()
   const canEdit = capabilities?.manageMeetings
+
+  // The meeting belongs to the Chair unless an item says otherwise — an item
+  // with no presenter reads as the Chair's, by name. Display only, so if the
+  // chair changes the agenda follows.
+  const { data: boardMembers } = useApi(meeting.boardId ? `/board-members?boardId=${meeting.boardId}` : null)
+  const chair = (boardMembers || []).find((m) => !m.endedAt && String(m.role).toUpperCase() === 'CHAIR')
+  const presenterFor = (item) =>
+    item.presenter || (chair?.user?.name ? `${chair.user.name} — Chair` : 'No presenter')
   const [busy, setBusy] = useState(null)
   const [notice, setNotice] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -388,6 +396,18 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
     }
   }
 
+  const toggleOrderLock = async () => {
+    setBusy('lock')
+    try {
+      await api.put(`/meetings/${meeting.id}`, { agendaOrderLocked: !meeting.agendaOrderLocked })
+      await onChanged?.()
+    } catch (e) {
+      setNotice({ tone: 'danger', text: e.message })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const addItem = async (e) => {
     e.preventDefault()
     setBusy('add')
@@ -422,8 +442,21 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
             title="Build the agenda from the pack's numbered folders — rename a folder and re-sync, the item follows">
             {busy === 'sync' ? 'Syncing…' : 'Sync from pack'}
           </button>
+          <button
+            onClick={toggleOrderLock}
+            disabled={busy === 'lock'}
+            className="bp-btn bp-btn-secondary"
+            style={meeting.agendaOrderLocked ? { background: 'var(--bp-success-bg)', color: 'var(--bp-success-fg)' } : undefined}
+            title={meeting.agendaOrderLocked
+              ? 'Order is locked: syncs never move items, and anything new appears below the last item. Click to unlock.'
+              : 'Lock the order you have arranged: syncs will rename items but never move them, and new items appear below.'}
+          >
+            {meeting.agendaOrderLocked ? '🔒 Order locked' : '🔓 Lock order'}
+          </button>
           <span className="text-xs bp-muted">
-            Synced items follow their folder; hand-made items are never touched by a sync.
+            {meeting.agendaOrderLocked
+              ? 'Hand-arranged order held — new items land at the bottom.'
+              : 'Synced items follow their folder; hand-made items are never touched by a sync.'}
           </span>
         </div>
       )}
@@ -498,7 +531,7 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
                     )}
                   </p>
                   <p className="text-xs bp-muted mt-0.5">
-                    {item.presenter || 'No presenter'}
+                    {presenterFor(item)}
                     {item.duration ? ` · ${item.duration} min` : ''}
                   </p>
                 </>

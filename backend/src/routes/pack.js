@@ -284,6 +284,12 @@ router.post('/:meetingId/sync-agenda', requireAdmin, async (req, res) => {
     let updated = 0;
     const seen = new Set();
 
+    // A hand-ordered agenda stays put: with the order locked, a sync still
+    // renames items to follow their folders but never moves them, and new
+    // folders append below the last item instead of slotting in by number.
+    const locked = meeting.agendaOrderLocked;
+    let appendOrder = Math.max(0, ...existing.map((i) => i.order ?? 0));
+
     for (const entry of entries) {
       const parsed = agendaItemFromFolderName(entry.name);
       if (!parsed) continue; // unnumbered folders are reference material
@@ -291,21 +297,23 @@ router.post('/:meetingId/sync-agenda', requireAdmin, async (req, res) => {
 
       const prior = bySource.get(entry.id);
       if (prior) {
-        if (prior.number !== parsed.number || prior.title !== parsed.title || prior.order !== parsed.sort) {
+        const nextOrder = locked ? prior.order : parsed.sort;
+        if (prior.number !== parsed.number || prior.title !== parsed.title || prior.order !== nextOrder) {
           await prisma.agendaItem.update({
             where: { id: prior.id },
-            data: { number: parsed.number, title: parsed.title, order: parsed.sort },
+            data: { number: parsed.number, title: parsed.title, order: nextOrder },
           });
           updated += 1;
         }
       } else {
+        appendOrder += 1;
         await prisma.agendaItem.create({
           data: {
             meetingId: meeting.id,
             sourceFolderId: entry.id,
             number: parsed.number,
             title: parsed.title,
-            order: parsed.sort,
+            order: locked ? appendOrder : parsed.sort,
           },
         });
         created += 1;
