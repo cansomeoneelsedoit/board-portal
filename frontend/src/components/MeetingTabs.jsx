@@ -527,29 +527,57 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
                     })),
                 ]
                 if (!files.length) return null
+
+                // Papers filed in a sub-folder read as a little tree: the
+                // folder named once, its files indented beneath it.
+                const rootFiles = []
+                const byFolder = new Map()
+                for (const f of files) {
+                  const cut = f.name.lastIndexOf('/')
+                  if (cut === -1) {
+                    rootFiles.push(f)
+                  } else {
+                    const dir = f.name.slice(0, cut)
+                    if (!byFolder.has(dir)) byFolder.set(dir, [])
+                    byFolder.get(dir).push({ ...f, base: f.name.slice(cut + 1) })
+                  }
+                }
+
+                const fileLine = (f, label) => (
+                  <div key={f.key} className="flex flex-wrap items-center gap-2 text-xs bp-muted">
+                    <span className="truncate">{label}</span>
+                    {f.size ? <span className="bp-subtle">{fmtBytes(f.size)}</span> : null}
+                    {f.receivedAt && (
+                      <span className="bp-subtle" title="When this paper first arrived — a later edit never changes this">
+                        received {fmtDateTime(f.receivedAt)}
+                      </span>
+                    )}
+                    {f.updatedAt && (
+                      <span style={{ color: 'var(--bp-warning-fg)' }} title="The file has changed since it was received">
+                        updated {fmtDateTime(f.updatedAt)}
+                      </span>
+                    )}
+                    {f.status && (
+                      <span className={`bp-badge bp-badge--${
+                        f.status === 'ON_TIME' ? 'success' : f.status === 'LATE' ? 'warning' : 'danger'
+                      }`}>
+                        {f.status === 'ON_TIME' ? 'on time' : f.status === 'LATE' ? 'late' : 'after board date'}
+                      </span>
+                    )}
+                  </div>
+                )
+
                 return (
                   <div className="mt-2 space-y-1">
-                    {files.map((f) => (
-                      <div key={f.key} className="flex flex-wrap items-center gap-2 text-xs bp-muted">
-                        <span className="truncate">{f.name}</span>
-                        {f.size ? <span className="bp-subtle">{fmtBytes(f.size)}</span> : null}
-                        {f.receivedAt && (
-                          <span className="bp-subtle" title="When this paper first arrived — a later edit never changes this">
-                            received {fmtDateTime(f.receivedAt)}
-                          </span>
-                        )}
-                        {f.updatedAt && (
-                          <span style={{ color: 'var(--bp-warning-fg)' }} title="The file has changed since it was received">
-                            updated {fmtDateTime(f.updatedAt)}
-                          </span>
-                        )}
-                        {f.status && (
-                          <span className={`bp-badge bp-badge--${
-                            f.status === 'ON_TIME' ? 'success' : f.status === 'LATE' ? 'warning' : 'danger'
-                          }`}>
-                            {f.status === 'ON_TIME' ? 'on time' : f.status === 'LATE' ? 'late' : 'after board date'}
-                          </span>
-                        )}
+                    {rootFiles.map((f) => fileLine(f, f.name))}
+                    {[...byFolder.entries()].map(([dir, dirFiles]) => (
+                      <div key={dir}>
+                        <div className="flex items-center gap-1.5 text-xs font-medium bp-muted">
+                          <FolderOpen size={12} className="bp-subtle" /> {dir}
+                        </div>
+                        <div className="pl-5 space-y-1 mt-1">
+                          {dirFiles.map((f) => fileLine(f, f.base))}
+                        </div>
                       </div>
                     ))}
                   </div>
