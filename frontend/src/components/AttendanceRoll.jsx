@@ -32,8 +32,21 @@ export default function AttendanceRoll({ meetingId }) {
     if (r === 'INVITEE') return 'Invitees'
     return 'Guests & Members'
   }
+  // Boardroom precedence: the Chair leads, officers next, directors, then
+  // the Secretary (ex officio) closing the list — then everyone else by name.
+  const PRECEDENCE = {
+    CHAIR: 0, DEPUTY_CHAIR: 1, VICE_CHAIR: 1, PRESIDENT: 0,
+    TREASURER: 2, DIRECTOR: 3, COMMITTEE_MEMBER: 4, SECRETARY: 5,
+  }
+  const rank = (role) => PRECEDENCE[String(role || '').toUpperCase()] ?? 6
+
   const groups = ['The Board', 'Invitees', 'Guests & Members']
-    .map((label) => ({ label, rows: roll.filter((r) => CATEGORY(r.role) === label) }))
+    .map((label) => ({
+      label,
+      rows: roll
+        .filter((r) => CATEGORY(r.role) === label)
+        .sort((a, b) => rank(a.role) - rank(b.role) || String(a.member).localeCompare(String(b.member))),
+    }))
     .filter((g) => g.rows.length > 0)
 
   const toggleVoting = async (row) => {
