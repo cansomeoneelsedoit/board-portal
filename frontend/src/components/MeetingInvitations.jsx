@@ -120,6 +120,31 @@ export default function MeetingInvitations({ meetingId }) {
                 </button>
               )}
               <button
+                onClick={async () => {
+                  setBusy('board')
+                  setNotice(null)
+                  try {
+                    const { data: r } = await api.post('/invitations/board', { meetingId })
+                    setNotice({
+                      tone: r.added ? 'success' : 'info',
+                      text: r.added
+                        ? `Added ${r.added} board member${r.added === 1 ? '' : 's'} to the list`
+                        : 'The whole board is already on the list',
+                    })
+                    await refetch()
+                  } catch (e) {
+                    setNotice({ tone: 'danger', text: e.message })
+                  } finally {
+                    setBusy(null)
+                  }
+                }}
+                disabled={busy === 'board'}
+                className="bp-btn bp-btn-secondary"
+                title="Invite every sitting board member who is not on the list yet — new meetings do this automatically"
+              >
+                {busy === 'board' ? 'Inviting…' : 'Invite the board'}
+              </button>
+              <button
                 onClick={() => csvInput.current?.click()}
                 disabled={busy === 'csv'}
                 className="bp-btn bp-btn-secondary"

@@ -26,6 +26,48 @@ router.get('/', async (req, res) => {
  * person was already on the list.
  */
 /**
+ * Bring the meeting's invitation list up to the board: every sitting member
+ * who is not yet invited gets an invitation with their board role, voting
+ * rights following the role. For meetings scheduled before the board was
+ * (fully) set up.
+ */
+router.post('/board', requireAdmin, async (req, res) => {
+  try {
+    const { meetingId } = req.body || {};
+    if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
+
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      include: { invitations: true },
+    });
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const NON_VOTING = new Set(['SECRETARY', 'GUEST', 'INVITEE', 'OBSERVER']);
+    const invited = new Set(meeting.invitations.map((i) => i.userId));
+    const members = await prisma.boardMember.findMany({
+      where: { boardId: meeting.boardId, endedAt: null },
+    });
+    const missing = members.filter((m) => !invited.has(m.userId));
+
+    if (missing.length) {
+      await prisma.invitation.createMany({
+        data: missing.map((m) => ({
+          meetingId,
+          userId: m.userId,
+          role: m.role,
+          votingRights: !NON_VOTING.has(String(m.role).toUpperCase()),
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    res.json({ added: missing.length, alreadyInvited: invited.size });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/**
  * Invite someone from OUTSIDE the system — a guest speaker, an auditor,
  * a visitor. They get a directory entry as a GUEST (name and email, so the
  * invitation can reach them and the roll can list them) but no vote and, in

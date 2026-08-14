@@ -62,6 +62,41 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+/** Meeting roles that attend without a vote. */
+const NON_VOTING_ROLES = new Set(['SECRETARY', 'GUEST', 'INVITEE', 'OBSERVER']);
+
+/**
+ * Schedule a meeting. The board's sitting members ARE its starting
+ * invitation list — set the board up once in Board Settings and every
+ * meeting begins with the right people on the roll, voting rights following
+ * their role (the secretary attends ex officio, without a vote). Extras are
+ * added per meeting: more invitees, or guests from outside the system.
+ */
+router.post('/', async (req, res) => {
+  try {
+    const meeting = await prisma.meeting.create({ data: req.body });
+
+    const members = await prisma.boardMember.findMany({
+      where: { boardId: meeting.boardId, endedAt: null },
+    });
+    if (members.length) {
+      await prisma.invitation.createMany({
+        data: members.map((m) => ({
+          meetingId: meeting.id,
+          userId: m.userId,
+          role: m.role,
+          votingRights: !NON_VOTING_ROLES.has(String(m.role).toUpperCase()),
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    res.status(201).json(meeting);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 router.use(makeRouter('meeting', {
   include: {
     board: true,
