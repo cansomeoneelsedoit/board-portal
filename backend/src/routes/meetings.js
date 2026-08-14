@@ -24,6 +24,44 @@ router.get('/venues', async (req, res) => {
   }
 });
 
+/**
+ * Erase a meeting and everything recorded against it — agenda, invitations,
+ * attendance, motions and votes, minutes, declarations, proxies, uploaded
+ * papers and received stamps. Top-level access only: a secretary administers
+ * meetings, the host platform's top roles delete them.
+ */
+router.delete('/:id', async (req, res) => {
+  try {
+    if (!req.session?.capabilities?.deleteMeetings) {
+      return res.status(403).json({
+        error: 'Deleting a meeting needs top-level administrator access.',
+      });
+    }
+
+    const meeting = await prisma.meeting.findUnique({ where: { id: req.params.id } });
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    await prisma.$transaction([
+      prisma.vote.deleteMany({ where: { motion: { meetingId: meeting.id } } }),
+      prisma.motion.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.minutesApproval.deleteMany({ where: { minutes: { meetingId: meeting.id } } }),
+      prisma.minutes.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.attendance.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.invitation.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.cOI.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.proxy.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.document.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.packFileReceipt.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.agendaItem.deleteMany({ where: { meetingId: meeting.id } }),
+      prisma.meeting.delete({ where: { id: meeting.id } }),
+    ]);
+
+    res.json({ deleted: true, title: meeting.title });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 router.use(makeRouter('meeting', {
   include: {
     board: true,

@@ -41,9 +41,18 @@ router.get('/export.pdf', async (req, res) => {
       board = await prisma.board.findUnique({ where: { id: req.query.boardId } });
     }
 
+    // The register lists the people who SIT on the body — the service
+    // register in Board Settings decides who that is.
+    const sitting = await prisma.boardMember.findMany({
+      where: { endedAt: null, ...(board ? { boardId: board.id } : {}) },
+      select: { userId: true },
+    });
+    const sittingIds = [...new Set(sitting.map((m) => m.userId))];
+
     const interests = await prisma.memberInterest.findMany({
       where: {
         status: 'ACTIVE',
+        userId: { in: sittingIds },
         ...(board
           ? { OR: [{ disclosedToAll: true }, { disclosures: { some: { boardId: board.id } } }] }
           : {}),
@@ -103,7 +112,19 @@ router.get('/export.pdf', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const where = {};
-    if (req.query.userId) where.userId = req.query.userId;
+    if (req.query.userId) {
+      // A profile asking for one person's disclosures sees them all.
+      where.userId = req.query.userId;
+    } else {
+      // The register lists the people who SIT on a body — the service
+      // register in Board Settings decides who that is. Board-filtered, the
+      // members of that body; unfiltered, anyone currently on any body.
+      const sitting = await prisma.boardMember.findMany({
+        where: { endedAt: null, ...(req.query.boardId ? { boardId: req.query.boardId } : {}) },
+        select: { userId: true },
+      });
+      where.userId = { in: [...new Set(sitting.map((m) => m.userId))] };
+    }
     // ?boardId= narrows to interests relevant to one body: standing
     // all-bodies disclosures plus ones scoped to that body specifically.
     if (req.query.boardId) {

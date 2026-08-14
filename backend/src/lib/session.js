@@ -26,6 +26,10 @@ function resolveSession(req) {
   const role = ADMIN_ROLES.has(raw) ? 'ADMIN' : ROLES.includes(raw) ? raw : 'MEMBER';
 
   const isAdmin = role === 'ADMIN';
+  // Destroying a meeting and its whole record is above day-to-day admin —
+  // the host's top-level roles only. (A secretary or chair administers
+  // meetings; they do not erase them.)
+  const isTopLevel = isAdmin && ['ADMIN', 'SUPER_ADMIN', 'BOARD_ADMIN'].includes(raw);
 
   return {
     userId: req.headers['x-user-id'] || null,
@@ -40,6 +44,8 @@ function resolveSession(req) {
       // what the portal OFFERS — SharePoint still enforces the real permission,
       // so an admin here without write access there will still be refused.
       writeDocuments: isAdmin,
+      // Erase a meeting and everything recorded against it.
+      deleteMeetings: isTopLevel,
     },
   };
 }

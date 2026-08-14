@@ -613,7 +613,7 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
       let buffer;
       try { buffer = await c.read(); } catch { continue; }
       scanned += 1;
-      for (const text of findMotions(textFromFile(c.name, buffer))) {
+      for (const text of findMotions(await textFromFile(c.name, buffer))) {
         const k = key(text);
         if (!k || seen.has(k)) continue;
         seen.add(k);

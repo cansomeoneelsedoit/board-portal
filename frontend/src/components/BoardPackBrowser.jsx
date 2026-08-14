@@ -40,8 +40,13 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
   // Set while walking folders an agenda dive opened: those live in SharePoint
   // whatever the meeting's own papers are set to.
   const sourceOverride = useRef(null)
+  // Only the LATEST request may paint the browser — mounting the pack tab
+  // from an agenda dive fires the root load and the folder load together,
+  // and whichever answered last used to win (landing you at the root).
+  const requestSeq = useRef(0)
 
   const load = useCallback(async (folderId, resetTrail) => {
+    const seq = ++requestSeq.current
     setLoading(true)
     setError(null)
     try {
@@ -52,25 +57,29 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
       const path = meetingId ? `/pack/${meetingId}${qs}` : `/sharepoint/browse${qs}`
 
       const { data } = await api.get(path)
+      if (seq !== requestSeq.current) return // a newer request superseded this one
       setPack(data)
       if (resetTrail) setTrail(data.folder ? [{ id: data.folder.id, name: data.folder.name }] : [])
     } catch (e) {
-      setError(e.message)
+      if (seq === requestSeq.current) setError(e.message)
     } finally {
-      setLoading(false)
+      if (seq === requestSeq.current) setLoading(false)
     }
   }, [meetingId])
 
-  useEffect(() => { load(null, true) }, [load])
+  useEffect(() => {
+    // A pending agenda dive supersedes the root load entirely.
+    if (focusFolder?.id) return
+    load(null, true)
+  }, [load])
 
   // Jumping in from the agenda: open straight at that item's folder, with the
   // pack root one step back.
   useEffect(() => {
     if (!focusFolder?.id) return
     sourceOverride.current = focusFolder.source || null
-    load(focusFolder.id, false).then(() => {
-      setTrail([{ id: '__ROOT__', name: 'Board pack' }, { id: focusFolder.id, name: focusFolder.name }])
-    })
+    setTrail([{ id: '__ROOT__', name: 'Board pack' }, { id: focusFolder.id, name: focusFolder.name }])
+    load(focusFolder.id, false)
   }, [focusFolder, load])
 
   const openFolder = async (item) => {

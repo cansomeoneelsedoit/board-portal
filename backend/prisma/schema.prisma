@@ -71,6 +71,10 @@ model Board {
   // Named members who MUST be present, on top of any role rule — for boards
   // whose quorum names people rather than offices. Comma-separated user ids.
   quorumMandatoryUserIds String @default("")
+  // The governing document behind the rules — uploaded once, kept with the
+  // board, readable any time, and mined for suggested quorum rules.
+  constitutionName String?
+  constitutionPath String? // under the uploads directory
   // Tenant seam: when this app runs as a module inside a MasonsView/HotelView
   // vertical, orgKey holds the host organisation/hotel identifier so boards can
   // be scoped per tenant. Null when running standalone.

@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { useState } from 'react'
 import {
-  ArrowLeft, Calendar, MapPin, Video, FileText, Clock, Pencil, X,
+  ArrowLeft, Calendar, MapPin, Video, FileText, Clock, Pencil, X, Trash2,
 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import api from '../lib/api'
@@ -184,6 +184,7 @@ function ReceivedStamp({ info }) {
 
 /** Edit the meeting's name, times and location in place. */
 function EditMeeting({ meeting, onClose, onSaved }) {
+  const { capabilities } = useSession()
   const d = meeting.date ? new Date(meeting.date) : null
   const pad = (n) => String(n).padStart(2, '0')
   const [form, setForm] = useState({
@@ -194,6 +195,10 @@ function EditMeeting({ meeting, onClose, onSaved }) {
     videoUrl: meeting.videoUrl || '',
     status: meeting.status || 'SCHEDULED',
   })
+  // The pinned pack folder. Cleared = unpin; changed = re-pin.
+  const initialPackUrl = meeting.sharepointWebUrl || ''
+  const [packUrl, setPackUrl] = useState(initialPackUrl)
+  const [proxiesAllowed, setProxiesAllowed] = useState(Boolean(meeting.proxiesAllowed))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
@@ -209,8 +214,29 @@ function EditMeeting({ meeting, onClose, onSaved }) {
         location: form.location || null,
         videoUrl: form.videoUrl || null,
         status: form.status,
+        proxiesAllowed,
       })
+      if (packUrl.trim() !== initialPackUrl.trim()) {
+        if (packUrl.trim()) {
+          await api.post(`/sharepoint/pack/${meeting.id}`, { url: packUrl.trim() })
+        } else {
+          await api.delete(`/sharepoint/pack/${meeting.id}`)
+        }
+      }
       await onSaved()
+    } catch (err) {
+      setError(err.message)
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!window.confirm(`Delete "${meeting.title}" and everything recorded against it? This cannot be undone.`)) return
+    setSaving(true)
+    setError(null)
+    try {
+      await api.delete(`/meetings/${meeting.id}`)
+      window.location.href = `${window.location.origin}${window.location.pathname.replace(/\/meetings\/.*$/, '/meetings')}`
     } catch (err) {
       setError(err.message)
       setSaving(false)
@@ -259,8 +285,26 @@ function EditMeeting({ meeting, onClose, onSaved }) {
             </select>
           </label>
           {error && <p className="text-sm" style={{ color: 'var(--bp-danger-fg)' }}>{error}</p>}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={proxiesAllowed}
+              onChange={(e) => setProxiesAllowed(e.target.checked)} />
+            Proxy voting allowed — members may assign their vote for this meeting
+          </label>
         </div>
-        <div className="p-5 flex justify-end gap-3" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
+        <div className="p-5 flex items-center gap-3" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
+          {capabilities?.deleteMeetings && (
+            <button
+              type="button"
+              onClick={remove}
+              disabled={saving}
+              className="bp-btn bp-btn-secondary"
+              style={{ color: 'var(--bp-danger-fg)' }}
+              title="Erase this meeting and everything recorded against it — top-level access only"
+            >
+              <Trash2 size={14} /> Delete meeting
+            </button>
+          )}
+          <span className="flex-1" />
           <button type="button" onClick={onClose} className="bp-btn bp-btn-secondary">Cancel</button>
           <button type="submit" disabled={saving} className="bp-btn bp-btn-primary">
             {saving ? 'Saving…' : 'Save Changes'}

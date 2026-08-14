@@ -66,7 +66,12 @@ export default function MeetingTabs({ meeting, received, declarations, onChanged
         {tabs.map(({ id, label, icon: Icon, count }) => (
           <button
             key={id}
-            onClick={() => setTab(id)}
+            onClick={() => {
+              // Opening the pack tab BY HAND starts at the pack root — only
+              // an agenda dive opens it inside a folder.
+              if (id === 'pack') setPackTarget(null)
+              setTab(id)
+            }}
             className={clsx(
               'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-t-md transition-colors',
               tab === id ? 'bg-[var(--bp-neutral-bg)]' : 'bp-muted hover:text-[var(--bp-fg)]'
@@ -85,7 +90,7 @@ export default function MeetingTabs({ meeting, received, declarations, onChanged
       {tab === 'pack' && (
         <div>
           <PackSourcePicker meeting={meeting} />
-          <BoardPackBrowser meetingId={meeting.id} />
+          <BoardPackBrowser meetingId={meeting.id} focusFolder={packTarget} />
         </div>
       )}
 
@@ -442,22 +447,21 @@ function AgendaPanel({ meeting, agenda, received, declarations, onChanged, onOpe
             title="Build the agenda from the pack's numbered folders — rename a folder and re-sync, the item follows">
             {busy === 'sync' ? 'Syncing…' : 'Sync from pack'}
           </button>
+          <span className="text-xs bp-muted">
+            Synced items follow their folder; hand-made items are never touched by a sync.
+          </span>
+          <span className="flex-1" />
           <button
             onClick={toggleOrderLock}
             disabled={busy === 'lock'}
-            className="bp-btn bp-btn-secondary"
-            style={meeting.agendaOrderLocked ? { background: 'var(--bp-success-bg)', color: 'var(--bp-success-fg)' } : undefined}
+            className="text-xs bp-subtle hover:text-[var(--bp-fg)] inline-flex items-center gap-1"
+            style={meeting.agendaOrderLocked ? { color: 'var(--bp-success-fg)' } : undefined}
             title={meeting.agendaOrderLocked
-              ? 'Order is locked: syncs never move items, and anything new appears below the last item. Click to unlock.'
-              : 'Lock the order you have arranged: syncs will rename items but never move them, and new items appear below.'}
+              ? 'Order locked: syncs never move items; new items land at the bottom. Click to unlock.'
+              : 'Lock the order you have arranged: syncs rename items but never move them; new items land at the bottom.'}
           >
-            {meeting.agendaOrderLocked ? '🔒 Order locked' : '🔓 Lock order'}
+            {meeting.agendaOrderLocked ? '🔒 order locked' : '🔓 lock order'}
           </button>
-          <span className="text-xs bp-muted">
-            {meeting.agendaOrderLocked
-              ? 'Hand-arranged order held — new items land at the bottom.'
-              : 'Synced items follow their folder; hand-made items are never touched by a sync.'}
-          </span>
         </div>
       )}
 

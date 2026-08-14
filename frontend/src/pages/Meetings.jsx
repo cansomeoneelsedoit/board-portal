@@ -345,7 +345,7 @@ function NewMeetingModal({ onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto p-4 flex items-start justify-center">
-      <form onSubmit={submit} className="bp-card w-full max-w-lg my-4 max-h-[calc(100vh-2rem)] overflow-y-auto" style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.25)' }}>
+      <form onSubmit={submit} className="bp-card w-full max-w-3xl my-4 max-h-[calc(100vh-2rem)] overflow-y-auto" style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.25)' }}>
         <div className="p-5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
           <h2 className="text-lg font-semibold">Schedule New Meeting</h2>
           <button type="button" onClick={onClose} className="bp-subtle hover:text-[var(--bp-fg)]">
@@ -353,7 +353,7 @@ function NewMeetingModal({ onClose, onCreated }) {
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 grid gap-x-6 gap-y-4 sm:grid-cols-2">
           <label className="block">
             <span className="text-sm font-medium">Board / Committee</span>
             <select
@@ -401,13 +401,15 @@ function NewMeetingModal({ onClose, onCreated }) {
             )}
           </div>
           {repeat.freq !== 'NONE' && form.date && repeat.until && (
-            <p className="text-xs bp-muted">
+            <p className="text-xs bp-muted sm:col-span-2">
               Creates {seriesDates(`${form.date}T${form.time || '00:00'}`, repeat.freq, repeat.until).length} meetings,
               each finding its own pack folder by date.
             </p>
           )}
 
-          <PackFolderField value={packUrl} onChange={setPackUrl} />
+          <div className="sm:col-span-2">
+            <PackFolderField value={packUrl} onChange={setPackUrl} />
+          </div>
 
           <label className="block">
             <span className="text-sm font-medium">Location / Venue</span>
@@ -429,55 +431,56 @@ function NewMeetingModal({ onClose, onCreated }) {
             </select>
           </label>
 
-          <fieldset className="bp-card p-3 space-y-2">
+          <fieldset className="bp-card p-4 sm:col-span-2">
             <legend className="text-sm font-medium px-1">Quorum for this meeting</legend>
             {selectedBoard && (
-              <p className="text-xs bp-muted">
+              <p className="text-xs bp-muted mb-3">
                 {selectedBoard.name}'s standing rule, set in Board Settings — adjust below for this sitting only.
+                {mandatoryNames.length > 0 && (
+                  <>
+                    {' '}Must be present:{' '}
+                    {mandatoryNames.map((n) => (
+                      <span key={n} className="bp-badge bp-badge--info mr-1">{n}</span>
+                    ))}
+                  </>
+                )}
               </p>
             )}
-            {mandatoryNames.length > 0 && (
-              <p className="text-xs">
-                Named members who must be present:{' '}
-                {mandatoryNames.map((n) => (
-                  <span key={n} className="bp-badge bp-badge--info mr-1">{n}</span>
-                ))}
-                <span className="bp-subtle">(change in Board Settings)</span>
-              </p>
-            )}
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-sm">Minimum counting members</span>
-              <input
-                type="number" min="1" max="20"
-                value={quorum.minimum}
-                onChange={(e) => setQuorum((s) => ({ ...s, minimum: e.target.value }))}
-                className="bp-input w-20 text-center"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={quorum.requireChair}
-                onChange={(e) => setQuorum((s) => ({ ...s, requireChair: e.target.checked }))} />
-              Must include the Chair
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={quorum.requireTreasurer}
-                onChange={(e) => setQuorum((s) => ({ ...s, requireTreasurer: e.target.checked }))} />
-              Must include the Treasurer
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={quorum.secretaryExOfficio}
-                onChange={(e) => setQuorum((s) => ({ ...s, secretaryExOfficio: e.target.checked }))} />
-              Secretary attends ex officio (not counted)
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2 sm:items-center">
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm">Minimum counting members</span>
+                <input
+                  type="number" min="1" max="20"
+                  value={quorum.minimum}
+                  onChange={(e) => setQuorum((s) => ({ ...s, minimum: e.target.value }))}
+                  className="bp-input w-20 text-center"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={quorum.secretaryExOfficio}
+                  onChange={(e) => setQuorum((s) => ({ ...s, secretaryExOfficio: e.target.checked }))} />
+                Secretary attends ex officio (not counted)
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={quorum.requireChair}
+                  onChange={(e) => setQuorum((s) => ({ ...s, requireChair: e.target.checked }))} />
+                Must include the Chair
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={quorum.requireTreasurer}
+                  onChange={(e) => setQuorum((s) => ({ ...s, requireTreasurer: e.target.checked }))} />
+                Must include the Treasurer
+              </label>
+            </div>
           </fieldset>
 
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input type="checkbox" checked={proxiesAllowed}
               onChange={(e) => setProxiesAllowed(e.target.checked)} />
             Proxy voting allowed — members may assign their vote for this meeting
           </label>
 
-          {err && <p className="text-sm" style={{ color: 'var(--bp-danger-fg)' }}>{err}</p>}
+          {err && <p className="text-sm sm:col-span-2" style={{ color: 'var(--bp-danger-fg)' }}>{err}</p>}
         </div>
 
         <div className="p-5 flex justify-end gap-3" style={{ borderTop: '1px solid var(--bp-card-border)' }}>

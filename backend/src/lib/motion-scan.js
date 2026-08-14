@@ -26,13 +26,19 @@ function docxToText(buffer) {
     .trim();
 }
 
-function textFromFile(name, buffer) {
+async function textFromFile(name, buffer) {
   const lower = String(name || '').toLowerCase();
   if (lower.endsWith('.docx')) {
     try { return docxToText(buffer); } catch { return ''; }
   }
+  if (lower.endsWith('.pdf')) {
+    try {
+      const pdf = require('pdf-parse');
+      return (await pdf(buffer)).text || '';
+    } catch { return ''; }
+  }
   if (/\.(txt|md|csv)$/.test(lower)) return buffer.toString('utf8');
-  // Binary formats we cannot read (pdf, images, xlsx) are skipped, not errors.
+  // Binary formats we cannot read (images, xlsx) are skipped, not errors.
   return '';
 }
 

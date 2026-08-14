@@ -49,8 +49,6 @@ export default function Admin() {
         subtitle="Board details, who sits on it, and where the papers live"
       />
       <Bodies />
-      <QuorumRules />
-      <BoardMembers />
       <Directory />
       <Card>
         <CardHeader
@@ -213,7 +211,11 @@ function BodyRow({ body: b, busy, onRemove, onSaved }) {
           </div>
         ) : (
           <>
-            <p className="text-sm font-medium truncate">{b.name}</p>
+            <Link to={`/admin/boards/${b.id}`} className="text-sm font-medium truncate block hover:underline"
+              style={{ color: 'var(--bp-primary)' }}
+              title="Open this body's settings — its quorum rule, constitution and members">
+              {b.name}
+            </Link>
             <p className="text-xs bp-muted truncate">
               {humanise(b.kind)}
               {b.parent ? ` · reports to ${b.parent.name}` : ''}

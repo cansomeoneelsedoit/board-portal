@@ -1,9 +1,106 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../lib/prisma');
 const { requireAdmin } = require('../lib/session');
 const { BOARD_KIND_IDS } = require('../lib/governance');
+const { UPLOAD_DIR } = require('../lib/pack-sources');
+const { textFromFile } = require('../lib/motion-scan');
 
 const router = express.Router();
+
+/* ------------------------------------------------------------ constitution */
+
+/**
+ * Attach the board's constitution. It is kept with the board — readable from
+ * the quorum-rules card any time — and mined for suggested rules below.
+ */
+router.post('/:id/constitution', requireAdmin, async (req, res) => {
+  try {
+    const file = req.files?.file;
+    if (!file) return res.status(400).json({ error: 'No file uploaded (expected field "file")' });
+    if (!/\.(pdf|docx|txt)$/i.test(file.name)) {
+      return res.status(400).json({ error: 'Upload the constitution as PDF, Word (.docx) or text' });
+    }
+
+    const board = await prisma.board.findUnique({ where: { id: req.params.id } });
+    if (!board) return res.status(404).json({ error: 'Board not found' });
+
+    const dir = path.join(UPLOAD_DIR, 'boards', board.id);
+    fs.mkdirSync(dir, { recursive: true });
+    const safeName = path.basename(file.name).replace(/[\\/:*?"<>|#%]/g, '-');
+    await fs.promises.writeFile(path.join(dir, safeName), file.data);
+
+    const updated = await prisma.board.update({
+      where: { id: board.id },
+      data: {
+        constitutionName: file.name,
+        constitutionPath: ['boards', board.id, safeName].join('/'),
+      },
+    });
+    res.status(201).json({
+      constitutionName: updated.constitutionName,
+      constitutionPath: updated.constitutionPath,
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Word-numbers a constitution writes quorums in. */
+const NUMBER_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+};
+
+/**
+ * Read the constitution for its quorum rules.
+ *
+ * Finds every clause that mentions a quorum, and where one names a number of
+ * directors ("a quorum is two Directors") proposes it as the board's minimum.
+ * Suggestions only — nothing changes until they are applied.
+ */
+router.get('/:id/constitution/suggest', requireAdmin, async (req, res) => {
+  try {
+    const board = await prisma.board.findUnique({ where: { id: req.params.id } });
+    if (!board) return res.status(404).json({ error: 'Board not found' });
+    if (!board.constitutionPath) {
+      return res.status(400).json({ error: 'Upload the constitution first' });
+    }
+
+    const buffer = await fs.promises.readFile(path.join(UPLOAD_DIR, board.constitutionPath));
+    const text = await textFromFile(board.constitutionName || board.constitutionPath, buffer);
+    if (!text) return res.status(400).json({ error: 'Could not read any text out of that file' });
+
+    // Sentences around every mention of a quorum.
+    const flat = text.replace(/\s+/g, ' ');
+    const clauses = [];
+    const re = /[^.]*\bquorum\b[^.]*\./gi;
+    let m;
+    while ((m = re.exec(flat)) !== null) {
+      const clause = m[0].trim();
+      if (clause.length > 20 && clause.length < 500) clauses.push(clause);
+    }
+
+    // The board-meeting quorum: a clause about DIRECTORS naming a number.
+    let minimum = null;
+    let basis = null;
+    for (const clause of clauses) {
+      if (!/director/i.test(clause)) continue;
+      const num = clause.match(/quorum\s+(?:is|shall\s+be|of)\s+(?:at\s+least\s+)?(\w+)/i);
+      if (!num) continue;
+      const value = NUMBER_WORDS[num[1].toLowerCase()] ?? (Number(num[1]) || null);
+      if (value) {
+        minimum = value;
+        basis = clause;
+        break;
+      }
+    }
+
+    res.json({ minimum, basis, clauses: clauses.slice(0, 8) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 
 /**
  * Boards and committees.
