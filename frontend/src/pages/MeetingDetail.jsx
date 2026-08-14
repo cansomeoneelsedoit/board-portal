@@ -13,6 +13,7 @@ import MeetingTabs from '../components/MeetingTabs'
 import MeetingInvitations from '../components/MeetingInvitations'
 import PackFolderField from '../components/PackFolderField'
 import VenueInput from '../components/VenueInput'
+import AskBizGpt from '../components/AskBizGpt'
 
 export default function MeetingDetail() {
   const { id } = useParams()
@@ -57,6 +58,7 @@ export default function MeetingDetail() {
         subtitle={meeting.board?.name}
         actions={
           <div className="flex items-center gap-2">
+            <AskBizGpt meeting={meeting} />
             {capabilities?.manageMeetings && (
               <button onClick={() => setEditing(true)} className="bp-btn bp-btn-secondary">
                 <Pencil size={14} /> Edit

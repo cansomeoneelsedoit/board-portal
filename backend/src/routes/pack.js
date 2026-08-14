@@ -628,6 +628,35 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
 });
 
 /**
+ * Ask me anything — powered by BizGPT.
+ *
+ * One question about this meeting, answered from its record and the full
+ * text of its board pack. Reading, not writing — every role may ask.
+ */
+router.post('/:meetingId/ask', async (req, res) => {
+  try {
+    const { askBizGpt, apiKeyMissing } = require('../lib/bizgpt');
+    if (apiKeyMissing()) {
+      return res.status(503).json({
+        error:
+          'BizGPT needs an Anthropic API key. Add ANTHROPIC_API_KEY=... to backend/.env and restart the app.',
+      });
+    }
+
+    const { question, history } = req.body || {};
+    if (!question?.trim()) return res.status(400).json({ error: 'Ask a question' });
+
+    const meeting = await loadMeeting(req.params.meetingId);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    const result = await askBizGpt(meeting, question.trim(), Array.isArray(history) ? history : []);
+    res.json(result);
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/**
  * A windowed preview for a paper: the embeddable SharePoint viewer for
  * library files, plus a direct download link as the fallback for anything
  * the viewer cannot render. Read-only — editing stays on the SharePoint side.
