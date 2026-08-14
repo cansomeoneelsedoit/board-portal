@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { UserPlus, Trash2, Plus, Users, Building2, ShieldAlert, X, Pencil, Check } from 'lucide-react'
+import {
+  UserPlus, Trash2, Plus, Users, Building2, ShieldAlert, X, Pencil, Check, ChevronDown, FolderOpen, Cloud,
+} from 'lucide-react'
 import api from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { humanise, fmtDate } from '../lib/format'
@@ -46,18 +48,75 @@ export default function Admin() {
     <div className="space-y-6">
       <PageHeader
         title="Board Settings"
-        subtitle="Board details, who sits on it, and where the papers live"
+        subtitle="Set up in order: the bodies and their rules, the people, then where the papers live"
       />
-      <Bodies />
-      <Directory />
-      <Card>
-        <CardHeader
-          title="Library"
-          action={<span className="text-xs bp-muted">The whole SharePoint library — members see packs per meeting</span>}
+      <SettingsSection
+        id="bodies"
+        icon={Building2}
+        title="1 · Boards & committees"
+        blurb="Create each body, then open it to set its quorum rule, constitution and members — meetings default from these."
+        defaultOpen
+      >
+        <Bodies />
+      </SettingsSection>
+      <SettingsSection
+        id="people"
+        icon={Users}
+        title="2 · People"
+        blurb="Everyone who can sit on a body or be invited to a meeting — click a name for their profile and service history."
+      >
+        <Directory />
+      </SettingsSection>
+      <SettingsSection
+        id="library"
+        icon={FolderOpen}
+        title="3 · Library"
+        blurb="The whole SharePoint library — members only ever see the pack for their meeting."
+      >
+        <Card>
+          <BoardPackBrowser emptyLabel="Link a SharePoint folder in the connection section to browse the library" />
+        </Card>
+      </SettingsSection>
+      <SettingsSection
+        id="sharepoint"
+        icon={Cloud}
+        title="4 · SharePoint connection"
+        blurb="Sign in and choose where the packs live — papers are edited on the SharePoint side."
+      >
+        <SharePointSetup />
+      </SettingsSection>
+    </div>
+  )
+}
+
+/**
+ * One step of the settings workflow — an accordion section that opens on its
+ * own; the heading reads as the instruction, the body is the tool.
+ */
+function SettingsSection({ icon: Icon, title, blurb, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="bp-card overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full text-left px-4 py-3.5 flex items-center gap-3 transition-colors hover:bg-[var(--bp-neutral-bg)]"
+      >
+        <span className="bp-chip bp-chip--primary w-9 h-9 shrink-0"><Icon size={16} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold">{title}</span>
+          <span className="block text-xs bp-muted truncate">{blurb}</span>
+        </span>
+        <ChevronDown
+          size={16}
+          className="bp-subtle shrink-0 transition-transform"
+          style={open ? { transform: 'rotate(180deg)' } : undefined}
         />
-        <BoardPackBrowser emptyLabel="Link a SharePoint folder below to browse the library" />
-      </Card>
-      <SharePointSetup />
+      </button>
+      {open && (
+        <div className="p-3 space-y-4" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
+          {children}
+        </div>
+      )}
     </div>
   )
 }
