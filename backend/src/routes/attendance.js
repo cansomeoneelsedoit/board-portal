@@ -94,7 +94,13 @@ router.get('/roll/:meetingId', async (req, res) => {
     for (const role of ['GUEST', 'INVITEE', 'OBSERVER']) exOfficio.add(role);
 
     const present = roll.filter((r) => r.present === true);
-    const counted = present.filter((r) => !exOfficio.has(String(r.role || '').toUpperCase()));
+    // Quorum follows the vote: only VOTING members in the room count toward
+    // the minimum. A non-voting attendee — the ex officio secretary, a CFO,
+    // a guest — never makes the number, though the rule can still REQUIRE
+    // their presence (named members / the constitution) without counting them.
+    const counted = present.filter(
+      (r) => r.votingRights !== false && !exOfficio.has(String(r.role || '').toUpperCase())
+    );
 
     const requirements = requiredRoles.map((role) => ({
       role,
