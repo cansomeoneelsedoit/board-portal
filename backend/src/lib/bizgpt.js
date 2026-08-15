@@ -58,6 +58,21 @@ async function resolveConfig() {
   return { mode: null, source: null };
 }
 
+/** HTTP statuses from the gateway, in words a secretary can act on. */
+function friendlyStatusError(status, baseUrl, body = '') {
+  const host = (() => { try { return new URL(baseUrl).host; } catch { return baseUrl; } })();
+  if (status === 502 || status === 503 || status === 504) {
+    return `The BizGPT gateway at ${host} is up but the model behind it is not answering (HTTP ${status}) — the GPU instance is starting or stopped. Try again in a minute; if it persists, check the instance.`;
+  }
+  if (status === 401 || status === 403) {
+    return `The BizGPT gateway at ${host} rejected the API key (HTTP ${status}). Fix the key under Integrations.`;
+  }
+  if (status === 404) {
+    return `The BizGPT gateway at ${host} has no model at that path or name (HTTP 404). Check the base URL ends in /v1 and the model name under Integrations.`;
+  }
+  return `BizGPT model endpoint returned ${status}${body ? `: ${body.slice(0, 200)}` : ''}`;
+}
+
 /** Turn transport-level failures into words a secretary can act on. */
 function friendlyEndpointError(error, baseUrl) {
   const code = error?.cause?.code || error?.code || '';
@@ -268,7 +283,7 @@ async function askOpenAiCompatible(cfg, context, chatMessages) {
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(`BizGPT model endpoint returned ${response.status}: ${body.slice(0, 300)}`);
+    throw new Error(friendlyStatusError(response.status, base, body));
   }
 
   const data = await response.json();
@@ -355,7 +370,7 @@ async function testEndpoint(cfg) {
     });
     if (chat.ok) return { ok: true, detail: `Model answered (${Date.now() - started}ms)` };
     const body = await chat.text().catch(() => '');
-    return { ok: false, detail: `Endpoint answered ${chat.status}: ${body.slice(0, 200)}` };
+    return { ok: false, detail: friendlyStatusError(chat.status, base, body) };
   } catch (error) {
     return { ok: false, detail: friendlyEndpointError(error, base) || error.message };
   }
