@@ -23,8 +23,18 @@ const CONTEXT_TTL_MS = 5 * 60 * 1000;
 // cache it per meeting so a conversation costs one build, not one per turn.
 const contextCache = new Map(); // meetingId -> { at, text }
 
+/*
+ * Two ways to power BizGPT, checked in order:
+ *   1. An OpenAI-compatible endpoint (BIZGPT_BASE_URL + BIZGPT_API_KEY +
+ *      BIZGPT_MODEL) — e.g. a gpu.ai-hosted model.
+ *   2. The Anthropic API (ANTHROPIC_API_KEY) — claude-opus-5.
+ */
+function openAiConfigured() {
+  return Boolean(process.env.BIZGPT_BASE_URL && process.env.BIZGPT_API_KEY);
+}
+
 function apiKeyMissing() {
-  return !process.env.ANTHROPIC_API_KEY;
+  return !openAiConfigured() && !process.env.ANTHROPIC_API_KEY;
 }
 
 /** Every file under a folder, sub-folders included. */
@@ -105,7 +115,7 @@ async function meetingRecord(meeting) {
     prisma.invitation.findMany({ where: { meetingId: meeting.id }, include: { user: true } }),
     prisma.attendance.findMany({ where: { meetingId: meeting.id }, include: { user: true } }),
     prisma.motion.findMany({ where: { meetingId: meeting.id }, include: { votes: { include: { user: true } } } }),
-    prisma.cOI.findMany({ where: { meetingId: meeting.id }, include: { user: true, agendaItem: true } }),
+    prisma.cOI.findMany({ where: { meetingId: meeting.id }, include: { user: true } }),
     prisma.proxy.findMany({ where: { meetingId: meeting.id }, include: { fromUser: true, toUser: true } }),
     prisma.packFileReceipt.findMany({ where: { meetingId: meeting.id } }),
   ]);
@@ -158,9 +168,11 @@ async function meetingRecord(meeting) {
   }
 
   if (cois.length) {
+    const itemById = new Map(agenda.map((a) => [a.id, a]));
     lines.push('\nDECLARED CONFLICTS OF INTEREST:');
     for (const c of cois) {
-      lines.push(`  ${c.user?.name || 'Member'}: ${c.description} — effect: ${c.effect}${c.agendaItem ? `; pinned to item ${c.agendaItem.number} ${c.agendaItem.title}` : ''}${c.resolution ? `; resolution: ${c.resolution}` : ''}`);
+      const item = c.agendaItemId ? itemById.get(c.agendaItemId) : null;
+      lines.push(`  ${c.user?.name || 'Member'}: ${c.description} — effect: ${c.effect}${item ? `; pinned to item ${item.number} ${item.title}` : ''}${c.resolution ? `; resolution: ${c.resolution}` : ''}`);
     }
   }
 
@@ -192,23 +204,40 @@ const PERSONA =
   'You serve company directors and secretaries: be precise about dates, figures, motions and who said or holds what. ' +
   'Keep answers concise and boardroom-ready; use a short list only when it genuinely helps.';
 
-/**
- * Answer one question about the meeting, continuing a short conversation.
- * The pack context carries a cache breakpoint so follow-up questions in the
- * same conversation reuse the cached prefix instead of re-billing the pack.
- */
-async function askBizGpt(meeting, question, history = []) {
+/** Ask via an OpenAI-compatible endpoint (gpu.ai etc.). */
+async function askOpenAiCompatible(context, chatMessages) {
+  const base = process.env.BIZGPT_BASE_URL.replace(/\/+$/, '');
+  const response = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.BIZGPT_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: process.env.BIZGPT_MODEL || 'default',
+      max_tokens: 2048,
+      messages: [
+        { role: 'system', content: `${PERSONA}\n\n${context}` },
+        ...chatMessages,
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`BizGPT model endpoint returned ${response.status}: ${body.slice(0, 300)}`);
+  }
+
+  const data = await response.json();
+  const answer = (data.choices?.[0]?.message?.content || '').trim();
+  if (!answer) throw new Error('BizGPT model returned an empty answer');
+  return { answer, usage: data.usage };
+}
+
+/** Ask via the Anthropic API. The pack context carries a cache breakpoint
+ *  so follow-up questions reuse the cached prefix instead of re-billing it. */
+async function askAnthropic(context, chatMessages) {
   const client = new Anthropic();
-  const context = await meetingContext(meeting);
-
-  const messages = [
-    ...history
-      .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
-      .slice(-8)
-      .map((m) => ({ role: m.role, content: String(m.content).slice(0, 4000) })),
-    { role: 'user', content: String(question).slice(0, 4000) },
-  ];
-
   const response = await client.messages.create({
     model: 'claude-opus-5',
     max_tokens: 2048,
@@ -217,7 +246,7 @@ async function askBizGpt(meeting, question, history = []) {
       { type: 'text', text: PERSONA },
       { type: 'text', text: context, cache_control: { type: 'ephemeral' } },
     ],
-    messages,
+    messages: chatMessages,
   });
 
   if (response.stop_reason === 'refusal') {
@@ -231,6 +260,23 @@ async function askBizGpt(meeting, question, history = []) {
     .trim();
 
   return { answer, usage: response.usage };
+}
+
+/** Answer one question about the meeting, continuing a short conversation. */
+async function askBizGpt(meeting, question, history = []) {
+  const context = await meetingContext(meeting);
+
+  const chatMessages = [
+    ...history
+      .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
+      .slice(-8)
+      .map((m) => ({ role: m.role, content: String(m.content).slice(0, 4000) })),
+    { role: 'user', content: String(question).slice(0, 4000) },
+  ];
+
+  return openAiConfigured()
+    ? askOpenAiCompatible(context, chatMessages)
+    : askAnthropic(context, chatMessages);
 }
 
 module.exports = { askBizGpt, apiKeyMissing };
