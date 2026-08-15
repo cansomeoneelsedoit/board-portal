@@ -213,7 +213,9 @@ const PERSONA =
   'Answer from the meeting record and board pack supplied below, and only from them. When your answer draws on a paper, ' +
   'name the file it came from. If the pack does not contain the answer, say so plainly rather than guessing. ' +
   'You serve company directors and secretaries: be precise about dates, figures, motions and who said or holds what. ' +
-  'Keep answers concise and boardroom-ready; use a short list only when it genuinely helps.';
+  'Keep answers concise and boardroom-ready. Format in Markdown, rendered as a page: lead with a one-line answer in bold, ' +
+  'then supporting detail; use short headings and bullet lists for anything with more than two points, and a table only for ' +
+  'genuinely tabular facts (figures, dates, names). Cite files by name in bold. No preamble, no sign-off.';
 
 /**
  * Answer one question about the meeting, continuing a short conversation.

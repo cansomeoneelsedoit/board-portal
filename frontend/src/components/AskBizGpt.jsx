@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrainCircuit, Loader2, Send, Sparkles, X } from 'lucide-react'
 import api from '../lib/api'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 /**
  * Ask me anything — powered by BizGPT.
@@ -67,11 +69,12 @@ export default function AskBizGpt({ meeting, focusFile = null, compact = false }
       </button>
 
       {open && (
-        <div className="fixed inset-0 bg-black/60 z-[60] p-4 flex items-center justify-center" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 bg-black/60 z-[60] p-4 flex items-center justify-center">
+          {/* Only the close button closes the window — a stray click outside
+              must never throw away a conversation. */}
           <div
-            className="bp-card w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden"
+            className="bp-card w-full max-w-3xl h-[85vh] flex flex-col overflow-hidden"
             style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.35)' }}
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
               <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#e8622c' }}>
@@ -107,25 +110,46 @@ export default function AskBizGpt({ meeting, focusFile = null, compact = false }
                 </div>
               )}
               {messages.map((m, i) => (
-                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div
-                    className="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap"
-                    style={m.role === 'user'
-                      ? { background: 'var(--bp-primary)', color: '#fff' }
-                      : { background: 'var(--bp-card-bg, #fff)', border: '1px solid var(--bp-card-border)' }}
-                  >
-                    {m.content}
+                m.role === 'user' ? (
+                  <div key={i} className="flex justify-end">
+                    <div className="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap"
+                      style={{ background: 'var(--bp-primary)', color: 'var(--bp-primary-fg, #fff)' }}>
+                      {m.content}
+                    </div>
                   </div>
-                  {m.role === 'assistant' && m.provider && (
-                    <span className="text-[11px] bp-subtle mt-1 px-1">
-                      {m.fellBack ? '↪ answered by fallback: ' : 'answered by '}{m.provider}
+                ) : (
+                  <div key={i} className="flex gap-3 items-start">
+                    <span className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5" style={{ background: '#e8622c' }}>
+                      <BrainCircuit size={14} color="#fff" />
                     </span>
-                  )}
-                </div>
+                    <div className="min-w-0 flex-1 rounded-lg px-4 py-3"
+                      style={{ background: 'var(--bp-card-bg, #fff)', border: '1px solid var(--bp-card-border)' }}>
+                      <div className="bp-answer">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            table: ({ node, ...props }) => <div className="bp-answer-table"><table {...props} /></div>,
+                            a: ({ node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+                          }}
+                        >
+                          {m.content}
+                        </ReactMarkdown>
+                      </div>
+                      {m.provider && (
+                        <p className="text-[11px] bp-subtle mt-2 pt-2" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
+                          {m.fellBack ? '↪ answered by fallback: ' : 'answered by '}{m.provider}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
               ))}
               {busy && (
-                <div className="flex justify-start">
-                  <div className="rounded-lg px-3 py-2 text-sm bp-muted inline-flex items-center gap-2"
+                <div className="flex gap-3 items-start">
+                  <span className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5" style={{ background: '#e8622c' }}>
+                    <BrainCircuit size={14} color="#fff" />
+                  </span>
+                  <div className="rounded-lg px-4 py-3 text-sm bp-muted inline-flex items-center gap-2"
                     style={{ background: 'var(--bp-card-bg, #fff)', border: '1px solid var(--bp-card-border)' }}>
                     <Loader2 size={14} className="animate-spin" /> Reading the pack…
                   </div>
