@@ -9,7 +9,7 @@ import api from '../lib/api'
  * meeting's record and the full text of its board pack. The conversation
  * lives in the window; closing it starts fresh.
  */
-export default function AskBizGpt({ meeting }) {
+export default function AskBizGpt({ meeting, focusFile = null, compact = false }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [draft, setDraft] = useState('')
@@ -38,6 +38,7 @@ export default function AskBizGpt({ meeting }) {
       const { data } = await api.post(`/pack/${meeting.id}/ask`, {
         question,
         history: messages.slice(-8),
+        ...(focusFile ? { focusFile: { name: focusFile.name, itemId: focusFile.itemId || null } } : {}),
       })
       setMessages((m) => [...m, {
         role: 'assistant',
@@ -57,14 +58,16 @@ export default function AskBizGpt({ meeting }) {
       <button
         onClick={() => setOpen(true)}
         className="bp-btn bp-btn-secondary"
-        title="Ask me anything about this meeting — answers come from the board pack itself"
+        title={focusFile
+          ? `Ask BizGPT about ${focusFile.name}`
+          : 'Ask me anything about this meeting — answers come from the board pack itself'}
         style={{ color: '#e8622c', borderColor: '#e8622c' }}
       >
-        <BrainCircuit size={15} /> Ask BizGPT
+        <BrainCircuit size={15} /> {compact ? 'Ask' : 'Ask BizGPT'}
       </button>
 
       {open && (
-        <div className="fixed inset-0 bg-black/60 z-50 p-4 flex items-center justify-center" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 bg-black/60 z-[60] p-4 flex items-center justify-center" onClick={() => setOpen(false)}>
           <div
             className="bp-card w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden"
             style={{ boxShadow: '0 20px 60px rgb(0 0 0 / 0.35)' }}
@@ -76,8 +79,9 @@ export default function AskBizGpt({ meeting }) {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold leading-tight">Ask me anything</p>
-                <p className="text-xs bp-muted leading-tight">
-                  powered by <span style={{ color: '#e8622c', fontWeight: 600 }}>Biz</span><span className="font-semibold">GPT</span> · answers from this meeting&apos;s pack
+                <p className="text-xs bp-muted leading-tight truncate">
+                  powered by <span style={{ color: '#e8622c', fontWeight: 600 }}>Biz</span><span className="font-semibold">GPT</span>
+                  {focusFile ? <> · about <b>{focusFile.name}</b></> : ' · answers from this meeting’s pack'}
                 </p>
               </div>
               <button onClick={() => setOpen(false)} className="bp-subtle hover:text-[var(--bp-fg)] p-1.5" title="Close">
@@ -89,10 +93,17 @@ export default function AskBizGpt({ meeting }) {
               {messages.length === 0 && !busy && (
                 <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8">
                   <Sparkles size={22} style={{ color: '#e8622c' }} />
-                  <p className="text-sm bp-muted max-w-sm">
-                    Ask anything about <b>{meeting.title}</b> — &ldquo;What is the Pelligra loan status?&rdquo;,
-                    &ldquo;Which papers arrived late?&rdquo;, &ldquo;Do we have quorum if Simon is an apology?&rdquo;
-                  </p>
+                  {focusFile ? (
+                    <p className="text-sm bp-muted max-w-sm">
+                      Ask about <b>{focusFile.name}</b> — &ldquo;Summarise this&rdquo;, &ldquo;What is being asked of the board?&rdquo;,
+                      &ldquo;What are the key dates and figures?&rdquo;
+                    </p>
+                  ) : (
+                    <p className="text-sm bp-muted max-w-sm">
+                      Ask anything about <b>{meeting.title}</b> — &ldquo;What is the Pelligra loan status?&rdquo;,
+                      &ldquo;Which papers arrived late?&rdquo;, &ldquo;Do we have quorum if Simon is an apology?&rdquo;
+                    </p>
+                  )}
                 </div>
               )}
               {messages.map((m, i) => (

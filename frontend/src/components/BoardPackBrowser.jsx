@@ -6,6 +6,7 @@ import {
 import api, { apiBase } from '../lib/api'
 import { fmtBytes, fmtDate } from '../lib/format'
 import { useSession } from '../lib/useSession'
+import AskBizGpt from './AskBizGpt'
 
 const SOURCE_META = {
   SHAREPOINT: { label: 'SharePoint',   icon: Cloud,     hint: 'Files live in the document library' },
@@ -180,14 +181,14 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
       const mime = item.mimetype || ''
       const inline = /pdf|image\//.test(mime)
       setPreview({
-        name: item.name, loading: false,
+        name: item.name, itemId: null, loading: false,
         url: inline ? url : null,
         image: /image\//.test(mime),
         downloadUrl: url, webUrl: null,
       })
       return
     }
-    setPreview({ name: item.name, loading: true, webUrl: item.webUrl })
+    setPreview({ name: item.name, itemId: item.id, loading: true, webUrl: item.webUrl })
     try {
       const path = meetingId
         ? `/pack/${meetingId}/preview?itemId=${encodeURIComponent(item.id)}`
@@ -425,6 +426,13 @@ export default function BoardPackBrowser({ meetingId = null, emptyLabel = 'This 
             <div className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--bp-card-border)' }}>
               <FileText size={16} className="bp-subtle shrink-0" />
               <span className="text-sm font-medium truncate flex-1">{preview.name}</span>
+              {meetingId && (
+                <AskBizGpt
+                  meeting={{ id: meetingId, title: '' }}
+                  focusFile={{ name: preview.name, itemId: preview.itemId }}
+                  compact
+                />
+              )}
               {preview.downloadUrl && (
                 <a href={preview.downloadUrl} target="_blank" rel="noreferrer" className="bp-btn bp-btn-secondary">
                   <Download size={14} /> Download

@@ -26,6 +26,30 @@ function docxToText(buffer) {
     .trim();
 }
 
+/** Plain text from an Outlook .msg: headers plus the body. */
+function msgToText(buffer) {
+  const mod = require('@kenjiuno/msgreader');
+  const MsgReader = mod.default || mod.MSGReader || mod;
+  const reader = new MsgReader(buffer);
+  const data = reader.getFileData();
+  const lines = [];
+  if (data.subject) lines.push(`Subject: ${data.subject}`);
+  const from = data.senderName || data.senderEmail;
+  if (from) lines.push(`From: ${data.senderName || ''}${data.senderEmail ? ` <${data.senderEmail}>` : ''}`.trim());
+  if (Array.isArray(data.recipients) && data.recipients.length) {
+    lines.push(`To: ${data.recipients.map((r) => r.name || r.email || r.smtpAddress).filter(Boolean).join(', ')}`);
+  }
+  const sent = data.messageDeliveryTime || data.clientSubmitTime || data.creationTime;
+  if (sent) lines.push(`Sent: ${sent}`);
+  if (Array.isArray(data.attachments) && data.attachments.length) {
+    lines.push(`Attachments: ${data.attachments.map((a) => a.fileName || a.name).filter(Boolean).join(', ')}`);
+  }
+  lines.push('');
+  const body = data.body || (data.bodyHtml ? String(data.bodyHtml).replace(/<[^>]+>/g, ' ') : '');
+  lines.push(String(body || '').replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim());
+  return lines.join('\n');
+}
+
 async function textFromFile(name, buffer) {
   const lower = String(name || '').toLowerCase();
   if (lower.endsWith('.docx')) {
@@ -36,6 +60,9 @@ async function textFromFile(name, buffer) {
       const pdf = require('pdf-parse');
       return (await pdf(buffer)).text || '';
     } catch { return ''; }
+  }
+  if (lower.endsWith('.msg')) {
+    try { return msgToText(buffer); } catch { return ''; }
   }
   if (/\.(txt|md|csv)$/.test(lower)) return buffer.toString('utf8');
   // Binary formats we cannot read (images, xlsx) are skipped, not errors.

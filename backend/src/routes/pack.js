@@ -636,13 +636,16 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
 router.post('/:meetingId/ask', async (req, res) => {
   try {
     const { askBizGpt } = require('../lib/bizgpt');
-    const { question, history } = req.body || {};
+    const { question, history, focusFile } = req.body || {};
     if (!question?.trim()) return res.status(400).json({ error: 'Ask a question' });
 
     const meeting = await loadMeeting(req.params.meetingId);
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
 
-    const result = await askBizGpt(meeting, question.trim(), Array.isArray(history) ? history : []);
+    const focus = focusFile && typeof focusFile === 'object' && focusFile.name
+      ? { name: String(focusFile.name), itemId: focusFile.itemId ? String(focusFile.itemId) : null }
+      : null;
+    const result = await askBizGpt(meeting, question.trim(), Array.isArray(history) ? history : [], focus);
     res.json(result);
   } catch (error) {
     if (error.status === 503 || error.status === 502) {

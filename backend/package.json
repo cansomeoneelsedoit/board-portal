@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
+    "@kenjiuno/msgreader": "^1.28.0",
     "@prisma/client": "^5.22.0",
     "adm-zip": "^0.5.18",
     "cors": "^2.8.5",

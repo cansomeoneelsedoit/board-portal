@@ -13,9 +13,12 @@ const { textFromFile } = require('./motion-scan');
  * answers stay grounded in the pack rather than the model's imagination.
  */
 
-const READABLE = /\.(docx|txt|md|csv|pdf)$/i;
-const MAX_FILE_CHARS = 12_000; // one paper's contribution to the context
-const MAX_PACK_CHARS = 150_000; // all papers together
+const READABLE = /\.(docx|txt|md|csv|pdf|msg)$/i;
+// Generous: modern models hold the whole pack. A single paper up to ~40
+// pages, the whole pack up to ~600k characters (~150k tokens) — nothing a
+// board pack contains should be cut mid-section.
+const MAX_FILE_CHARS = 200_000;
+const MAX_PACK_CHARS = 600_000;
 const CONTEXT_TTL_MS = 5 * 60 * 1000;
 
 // Building the context means downloading and reading the whole pack —
@@ -41,13 +44,28 @@ async function listFilesDeep(token, driveId, folderId, prefix = '', depth = 3) {
 /** The papers, as text: SharePoint pack (deep) plus locally uploaded docs. */
 async function packText(meeting) {
   const parts = [];
+  const manifest = [];
   let total = 0;
 
-  const push = (name, text) => {
-    if (!text) return;
-    const clipped = text.length > MAX_FILE_CHARS ? `${text.slice(0, MAX_FILE_CHARS)}\n[…truncated]` : text;
-    if (total + clipped.length > MAX_PACK_CHARS) return;
+  // Every file is listed in a manifest — read in full, read but truncated,
+  // unreadable format, or a cover sheet — so the model knows exactly what it
+  // holds and can say so instead of guessing.
+  const push = (name, text, sizeBytes) => {
+    if (!text || !text.trim()) {
+      manifest.push(`  ${name} — ${/\.(docx|pdf|txt|md|csv|msg)$/i.test(name) ? 'no extractable text (scanned or image-only)' : 'binary — not readable as text'}`);
+      return;
+    }
+    const truncated = text.length > MAX_FILE_CHARS;
+    const clipped = truncated ? `${text.slice(0, MAX_FILE_CHARS)}\n[…truncated at ${MAX_FILE_CHARS} characters]` : text;
+    if (total + clipped.length > MAX_PACK_CHARS) {
+      manifest.push(`  ${name} — omitted: pack context full`);
+      return;
+    }
     total += clipped.length;
+    // A large file yielding little text is a cover sheet / mostly images —
+    // the attachment it names may not be in the pack at all.
+    const coverSheet = sizeBytes > 150_000 && text.length < 1_500;
+    manifest.push(`  ${name} — ${text.length.toLocaleString()} characters${truncated ? ' (truncated)' : ' (read in full)'}${coverSheet ? ' — appears to be a COVER SHEET only; the report it refers to is not in the pack as a separate readable file' : ''}`);
     parts.push(`--- FILE: ${name} ---\n${clipped}`);
   };
 
@@ -64,13 +82,18 @@ async function packText(meeting) {
       if (folderId) {
         const files = await listFilesDeep(token, driveId, folderId);
         for (const f of files) {
-          if (!READABLE.test(f.name)) continue;
+          if (!READABLE.test(f.name)) {
+            manifest.push(`  ${f.name} — binary (${f.size || 0} bytes), not readable as text`);
+            continue;
+          }
           try {
             const url = await sp.getDownloadUrl(token, driveId, f.id);
             if (!url) continue;
             const buffer = Buffer.from(await (await fetch(url)).arrayBuffer());
-            push(f.name, await textFromFile(f.name, buffer));
-          } catch { /* one unreadable paper never sinks the answer */ }
+            push(f.name, await textFromFile(f.name, buffer), f.size || buffer.length);
+          } catch (e) {
+            manifest.push(`  ${f.name} — could not be downloaded (${e.message.slice(0, 60)})`);
+          }
           if (total >= MAX_PACK_CHARS) break;
         }
       }
@@ -86,11 +109,14 @@ async function packText(meeting) {
     if (!d.path || !READABLE.test(d.filename || d.name)) continue;
     try {
       const buffer = await fs.promises.readFile(path.join(UPLOAD_DIR, d.path));
-      push(d.name, await textFromFile(d.filename || d.name, buffer));
+      push(d.name, await textFromFile(d.filename || d.name, buffer), buffer.length);
     } catch { /* skip */ }
   }
 
-  return parts.join('\n\n');
+  const header = manifest.length
+    ? `PACK MANIFEST — every file in the pack and how much of it you hold:\n${manifest.join('\n')}\n\n`
+    : '';
+  return header + parts.join('\n\n');
 }
 
 /** The meeting's own record: agenda, roll, quorum rule, motions, conflicts. */
@@ -189,10 +215,39 @@ const PERSONA =
   'You serve company directors and secretaries: be precise about dates, figures, motions and who said or holds what. ' +
   'Keep answers concise and boardroom-ready; use a short list only when it genuinely helps.';
 
-/** Answer one question about the meeting, continuing a short conversation. */
-async function askBizGpt(meeting, question, history = []) {
+/**
+ * Answer one question about the meeting, continuing a short conversation.
+ *
+ * `focusFile` names one paper the user has open: the answer is about THAT
+ * paper first, with the rest of the pack still available for context. If
+ * the file was not readable in the pack, its text is read now so the
+ * question can still be answered.
+ */
+async function askBizGpt(meeting, question, history = [], focusFile = null) {
   const { askWithFailover } = require('./ai-providers');
-  const context = await meetingContext(meeting);
+  let context = await meetingContext(meeting);
+  let persona = PERSONA;
+
+  if (focusFile?.name) {
+    const inPack = context.includes(`--- FILE: ${focusFile.name} ---`) ||
+      context.split('\n').some((l) => l.startsWith('--- FILE: ') && l.endsWith(`/${focusFile.name} ---`));
+    if (!inPack && focusFile.itemId) {
+      // Not in the cached pack (e.g. outside the meeting folder) — read it now.
+      try {
+        const driveId = meeting.sharepointDriveId || meeting.board?.sharepointDriveId;
+        const { token } = await getGraphToken();
+        const url = await sp.getDownloadUrl(token, driveId, focusFile.itemId);
+        if (url) {
+          const buffer = Buffer.from(await (await fetch(url)).arrayBuffer());
+          const text = await textFromFile(focusFile.name, buffer);
+          if (text) context += `\n\n--- FILE: ${focusFile.name} (opened by the user) ---\n${text.slice(0, MAX_FILE_CHARS)}`;
+        }
+      } catch { /* answer from what we have */ }
+    }
+    persona +=
+      ` The user currently has the paper "${focusFile.name}" open and is asking about it. ` +
+      'Answer about that paper first and cite it; bring in other papers only where they bear on the question.';
+  }
 
   const messages = [
     ...history
@@ -202,7 +257,7 @@ async function askBizGpt(meeting, question, history = []) {
     { role: 'user', content: String(question).slice(0, 4000) },
   ];
 
-  return askWithFailover({ persona: PERSONA, context, messages, maxTokens: 2048 });
+  return askWithFailover({ persona, context, messages, maxTokens: 2048 });
 }
 
 module.exports = { askBizGpt };
