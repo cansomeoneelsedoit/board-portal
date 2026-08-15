@@ -635,14 +635,7 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
  */
 router.post('/:meetingId/ask', async (req, res) => {
   try {
-    const { askBizGpt, apiKeyMissing } = require('../lib/bizgpt');
-    if (apiKeyMissing()) {
-      return res.status(503).json({
-        error:
-          'BizGPT needs an Anthropic API key. Add ANTHROPIC_API_KEY=... to backend/.env and restart the app.',
-      });
-    }
-
+    const { askBizGpt } = require('../lib/bizgpt');
     const { question, history } = req.body || {};
     if (!question?.trim()) return res.status(400).json({ error: 'Ask a question' });
 
@@ -652,6 +645,7 @@ router.post('/:meetingId/ask', async (req, res) => {
     const result = await askBizGpt(meeting, question.trim(), Array.isArray(history) ? history : []);
     res.json(result);
   } catch (error) {
+    if (error.status === 503) return res.status(503).json({ error: error.message });
     handle(res, error);
   }
 });

@@ -4,6 +4,7 @@ import api, { endpoints } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Badge, Card, DataState, PageHeader } from '../components/ui'
 import SharePointSetup from '../components/SharePointSetup'
+import BizGptSetup from '../components/BizGptSetup'
 
 // SharePoint is a real integration handled by SharePointSetup; the rest are
 // still placeholder rows in the Integration table.
@@ -18,8 +19,8 @@ export default function Integrations() {
   const [busy, setBusy] = useState(null)
   const [saveError, setSaveError] = useState(null)
 
-  // SharePoint has its own card below with live connection state.
-  const integrations = (data || []).filter((i) => i.provider !== 'sharepoint')
+  // SharePoint and BizGPT have their own cards below with live state.
+  const integrations = (data || []).filter((i) => i.provider !== 'sharepoint' && i.provider !== 'BIZGPT')
 
   const toggle = async (integration) => {
     const next = integration.status === 'CONNECTED' ? 'DISCONNECTED' : 'CONNECTED'
@@ -48,6 +49,7 @@ export default function Integrations() {
       />
 
       <SharePointSetup />
+      <BizGptSetup />
 
       {saveError && (
         <div className="bp-card p-3 text-sm" style={{ color: 'var(--bp-danger-fg)' }}>

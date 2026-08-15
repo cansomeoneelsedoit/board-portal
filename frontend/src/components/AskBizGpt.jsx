@@ -111,7 +111,15 @@ export default function AskBizGpt({ meeting }) {
                 </div>
               )}
               {error && (
-                <p className="text-sm px-1" style={{ color: 'var(--bp-danger-fg)' }}>{error}</p>
+                <div className="text-sm px-1 space-y-1">
+                  <p style={{ color: 'var(--bp-danger-fg)' }}>{error}</p>
+                  {/(endpoint|configured|Integrations)/i.test(error) && (
+                    <a href={`${window.location.pathname.replace(/\/meetings\/.*$/, '')}/integrations`.replace('//', '/')}
+                       className="bp-link text-xs">
+                      Fix the BizGPT endpoint under Integrations →
+                    </a>
+                  )}
+                </div>
               )}
             </div>
 
