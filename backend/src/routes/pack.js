@@ -645,7 +645,9 @@ router.post('/:meetingId/ask', async (req, res) => {
     const result = await askBizGpt(meeting, question.trim(), Array.isArray(history) ? history : []);
     res.json(result);
   } catch (error) {
-    if (error.status === 503) return res.status(503).json({ error: error.message });
+    if (error.status === 503 || error.status === 502) {
+      return res.status(error.status).json({ error: error.message, errors: error.errors || [] });
+    }
     handle(res, error);
   }
 });

@@ -39,7 +39,12 @@ export default function AskBizGpt({ meeting }) {
         question,
         history: messages.slice(-8),
       })
-      setMessages((m) => [...m, { role: 'assistant', content: data.answer }])
+      setMessages((m) => [...m, {
+        role: 'assistant',
+        content: data.answer,
+        provider: data.providerLabel,
+        fellBack: data.fellBack,
+      }])
     } catch (ex) {
       setError(ex.message)
     } finally {
@@ -91,7 +96,7 @@ export default function AskBizGpt({ meeting }) {
                 </div>
               )}
               {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <div
                     className="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap"
                     style={m.role === 'user'
@@ -100,6 +105,11 @@ export default function AskBizGpt({ meeting }) {
                   >
                     {m.content}
                   </div>
+                  {m.role === 'assistant' && m.provider && (
+                    <span className="text-[11px] bp-subtle mt-1 px-1">
+                      {m.fellBack ? '↪ answered by fallback: ' : 'answered by '}{m.provider}
+                    </span>
+                  )}
                 </div>
               ))}
               {busy && (
@@ -112,13 +122,23 @@ export default function AskBizGpt({ meeting }) {
               )}
               {error && (
                 <div className="text-sm px-1 space-y-1">
-                  <p style={{ color: 'var(--bp-danger-fg)' }}>{error}</p>
-                  {/(endpoint|configured|Integrations)/i.test(error) && (
+                  <p style={{ color: 'var(--bp-danger-fg)' }} className="whitespace-pre-wrap">{error}</p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        const last = [...messages].reverse().find((m) => m.role === 'user')
+                        if (last) { setMessages((m) => m.slice(0, -1)); setDraft(last.content) }
+                        setError(null)
+                      }}
+                      className="bp-link text-xs"
+                    >
+                      Try again
+                    </button>
                     <a href={`${window.location.pathname.replace(/\/meetings\/.*$/, '')}/integrations`.replace('//', '/')}
                        className="bp-link text-xs">
-                      Fix the BizGPT endpoint under Integrations →
+                      Manage AI providers under Integrations →
                     </a>
-                  )}
+                  </div>
                 </div>
               )}
             </div>

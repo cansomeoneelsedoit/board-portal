@@ -1,4 +1,3 @@
-const Anthropic = require('@anthropic-ai/sdk');
 const prisma = require('./prisma');
 const sp = require('./graph/sharepoint');
 const { getGraphToken } = require('./graph/auth');
@@ -22,72 +21,6 @@ const CONTEXT_TTL_MS = 5 * 60 * 1000;
 // Building the context means downloading and reading the whole pack —
 // cache it per meeting so a conversation costs one build, not one per turn.
 const contextCache = new Map(); // meetingId -> { at, text }
-
-/*
- * Where BizGPT's model comes from, checked in order:
- *   1. The BIZGPT integration saved under Integrations (base URL + API key +
- *      model for any OpenAI-compatible endpoint — e.g. a gpu.ai instance).
- *      Editable in the app, so a dead link is fixed without touching .env.
- *   2. BIZGPT_BASE_URL / BIZGPT_API_KEY / BIZGPT_MODEL environment variables.
- *   3. The Anthropic API (ANTHROPIC_API_KEY) — claude-opus-5.
- */
-async function resolveConfig() {
-  try {
-    const row = await prisma.integration.findUnique({ where: { provider: 'BIZGPT' } });
-    if (row) {
-      const cfg = JSON.parse(row.config || '{}');
-      if (cfg.baseUrl && cfg.apiKey) {
-        return { mode: 'openai', source: 'integration', baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model || 'default' };
-      }
-    }
-  } catch { /* fall through to env */ }
-
-  if (process.env.BIZGPT_BASE_URL && process.env.BIZGPT_API_KEY) {
-    return {
-      mode: 'openai', source: 'env',
-      baseUrl: process.env.BIZGPT_BASE_URL,
-      apiKey: process.env.BIZGPT_API_KEY,
-      model: process.env.BIZGPT_MODEL || 'default',
-    };
-  }
-
-  if (process.env.ANTHROPIC_API_KEY) {
-    return { mode: 'anthropic', source: 'anthropic', model: 'claude-opus-5' };
-  }
-
-  return { mode: null, source: null };
-}
-
-/** HTTP statuses from the gateway, in words a secretary can act on. */
-function friendlyStatusError(status, baseUrl, body = '') {
-  const host = (() => { try { return new URL(baseUrl).host; } catch { return baseUrl; } })();
-  if (status === 502 || status === 503 || status === 504) {
-    return `The BizGPT gateway at ${host} is up but the model behind it is not answering (HTTP ${status}) — the GPU instance is starting or stopped. Try again in a minute; if it persists, check the instance.`;
-  }
-  if (status === 401 || status === 403) {
-    return `The BizGPT gateway at ${host} rejected the API key (HTTP ${status}). Fix the key under Integrations.`;
-  }
-  if (status === 404) {
-    return `The BizGPT gateway at ${host} has no model at that path or name (HTTP 404). Check the base URL ends in /v1 and the model name under Integrations.`;
-  }
-  return `BizGPT model endpoint returned ${status}${body ? `: ${body.slice(0, 200)}` : ''}`;
-}
-
-/** Turn transport-level failures into words a secretary can act on. */
-function friendlyEndpointError(error, baseUrl) {
-  const code = error?.cause?.code || error?.code || '';
-  const host = (() => { try { return new URL(baseUrl).host; } catch { return baseUrl; } })();
-  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
-    return `The BizGPT model endpoint ${host} could not be found — the GPU instance may be stopped or the address wrong. Fix the endpoint under Integrations, then Test connection.`;
-  }
-  if (code === 'ECONNREFUSED' || code === 'ECONNRESET') {
-    return `The BizGPT model endpoint ${host} refused the connection — the service may still be starting. Try again shortly, or check the endpoint under Integrations.`;
-  }
-  if (error?.name === 'AbortError' || code === 'UND_ERR_CONNECT_TIMEOUT') {
-    return `The BizGPT model endpoint ${host} timed out. The model may be loading — try again, or check the endpoint under Integrations.`;
-  }
-  return null;
-}
 
 /** Every file under a folder, sub-folders included. */
 async function listFilesDeep(token, driveId, folderId, prefix = '', depth = 3) {
@@ -256,84 +189,12 @@ const PERSONA =
   'You serve company directors and secretaries: be precise about dates, figures, motions and who said or holds what. ' +
   'Keep answers concise and boardroom-ready; use a short list only when it genuinely helps.';
 
-/** Ask via an OpenAI-compatible endpoint (gpu.ai etc.). */
-async function askOpenAiCompatible(cfg, context, chatMessages) {
-  const base = cfg.baseUrl.replace(/\/+$/, '');
-  let response;
-  try {
-    response = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${cfg.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: 2048,
-        messages: [
-          { role: 'system', content: `${PERSONA}\n\n${context}` },
-          ...chatMessages,
-        ],
-      }),
-      signal: AbortSignal.timeout(120_000),
-    });
-  } catch (error) {
-    throw new Error(friendlyEndpointError(error, base) || `BizGPT endpoint request failed: ${error.message}`);
-  }
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(friendlyStatusError(response.status, base, body));
-  }
-
-  const data = await response.json();
-  const answer = (data.choices?.[0]?.message?.content || '').trim();
-  if (!answer) throw new Error('BizGPT model returned an empty answer');
-  return { answer, usage: data.usage, model: cfg.model };
-}
-
-/** Ask via the Anthropic API. The pack context carries a cache breakpoint
- *  so follow-up questions reuse the cached prefix instead of re-billing it. */
-async function askAnthropic(context, chatMessages) {
-  const client = new Anthropic();
-  const response = await client.messages.create({
-    model: 'claude-opus-5',
-    max_tokens: 2048,
-    output_config: { effort: 'medium' },
-    system: [
-      { type: 'text', text: PERSONA },
-      { type: 'text', text: context, cache_control: { type: 'ephemeral' } },
-    ],
-    messages: chatMessages,
-  });
-
-  if (response.stop_reason === 'refusal') {
-    return { answer: 'BizGPT declined to answer that question.', refused: true };
-  }
-
-  const answer = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim();
-
-  return { answer, usage: response.usage };
-}
-
 /** Answer one question about the meeting, continuing a short conversation. */
 async function askBizGpt(meeting, question, history = []) {
-  const cfg = await resolveConfig();
-  if (!cfg.mode) {
-    const err = new Error(
-      'BizGPT has no model configured. Set the endpoint under Integrations, or add ANTHROPIC_API_KEY to backend/.env.'
-    );
-    err.status = 503;
-    throw err;
-  }
-
+  const { askWithFailover } = require('./ai-providers');
   const context = await meetingContext(meeting);
 
-  const chatMessages = [
+  const messages = [
     ...history
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
       .slice(-8)
@@ -341,39 +202,7 @@ async function askBizGpt(meeting, question, history = []) {
     { role: 'user', content: String(question).slice(0, 4000) },
   ];
 
-  return cfg.mode === 'openai'
-    ? askOpenAiCompatible(cfg, context, chatMessages)
-    : askAnthropic(context, chatMessages);
+  return askWithFailover({ persona: PERSONA, context, messages, maxTokens: 2048 });
 }
 
-/**
- * Reach out and touch the configured endpoint — used by the Test connection
- * button. Tries the cheap /models listing first, then a one-token completion.
- */
-async function testEndpoint(cfg) {
-  const base = cfg.baseUrl.replace(/\/+$/, '');
-  const started = Date.now();
-  try {
-    const models = await fetch(`${base}/models`, {
-      headers: { Authorization: `Bearer ${cfg.apiKey}` },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (models.ok) {
-      return { ok: true, detail: `Endpoint reachable (${Date.now() - started}ms)` };
-    }
-    // Some gateways only expose chat/completions — try a one-token ask.
-    const chat = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({ model: cfg.model, max_tokens: 1, messages: [{ role: 'user', content: 'OK' }] }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (chat.ok) return { ok: true, detail: `Model answered (${Date.now() - started}ms)` };
-    const body = await chat.text().catch(() => '');
-    return { ok: false, detail: friendlyStatusError(chat.status, base, body) };
-  } catch (error) {
-    return { ok: false, detail: friendlyEndpointError(error, base) || error.message };
-  }
-}
-
-module.exports = { askBizGpt, resolveConfig, testEndpoint };
+module.exports = { askBizGpt };
