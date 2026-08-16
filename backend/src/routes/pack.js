@@ -607,19 +607,36 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
     const existing = await prisma.motion.findMany({ where: { meetingId: meeting.id } });
     const seen = new Set(existing.flatMap((m) => [key(m.title), key(m.description || '')]));
 
+    // Read the papers in parallel (a few at a time) — one at a time was a
+    // minute-long wait on a real pack. Order of suggestions follows the
+    // pack order regardless of which download finished first.
+    const CONCURRENCY = 5;
+    const texts = new Array(candidates.length).fill(null);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < candidates.length) {
+        const i = cursor++;
+        const c = candidates[i];
+        try {
+          const buffer = await c.read();
+          texts[i] = await textFromFile(c.name, buffer);
+        } catch { texts[i] = null; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, candidates.length) }, worker));
+
     const suggestions = [];
     let scanned = 0;
-    for (const c of candidates) {
-      let buffer;
-      try { buffer = await c.read(); } catch { continue; }
+    candidates.forEach((c, i) => {
+      if (texts[i] === null) return;
       scanned += 1;
-      for (const text of findMotions(await textFromFile(c.name, buffer))) {
+      for (const text of findMotions(texts[i])) {
         const k = key(text);
         if (!k || seen.has(k)) continue;
         seen.add(k);
         suggestions.push({ text, file: c.name, number: c.number });
       }
-    }
+    });
 
     res.json({ scanned, suggestions: suggestions.slice(0, 50) });
   } catch (error) {

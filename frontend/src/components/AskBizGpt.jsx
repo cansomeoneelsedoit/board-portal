@@ -3,6 +3,7 @@ import { BrainCircuit, Loader2, Send, Sparkles, X } from 'lucide-react'
 import api from '../lib/api'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import WorkingDots from './WorkingDots'
 
 /**
  * Ask me anything — powered by BizGPT.
@@ -149,9 +150,9 @@ export default function AskBizGpt({ meeting, focusFile = null, compact = false }
                   <span className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5" style={{ background: '#e8622c' }}>
                     <BrainCircuit size={14} color="#fff" />
                   </span>
-                  <div className="rounded-lg px-4 py-3 text-sm bp-muted inline-flex items-center gap-2"
+                  <div className="rounded-lg px-4 py-3 text-sm bp-muted"
                     style={{ background: 'var(--bp-card-bg, #fff)', border: '1px solid var(--bp-card-border)' }}>
-                    <Loader2 size={14} className="animate-spin" /> Reading the pack…
+                    <WorkingDots label={messages.length <= 1 ? 'Reading the pack…' : 'Thinking…'} />
                   </div>
                 </div>
               )}

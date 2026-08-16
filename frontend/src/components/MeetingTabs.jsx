@@ -13,6 +13,7 @@ import BoardPackBrowser from './BoardPackBrowser'
 import MeetingInvitations from './MeetingInvitations'
 import { fmtBytes, fmtDateTime } from '../lib/format'
 import AttendanceRoll from './AttendanceRoll'
+import WorkingDots from './WorkingDots'
 
 /**
  * The meeting hub.
@@ -251,11 +252,16 @@ function MotionsPanel({ meeting, motions, onChanged }) {
     <div className="p-4 space-y-4">
       {canEdit && (
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={scanPack} disabled={busy === 'scan'} className="bp-btn bp-btn-secondary">
-            <Sparkles size={14} /> {busy === 'scan' ? 'Reading the pack…' : 'Suggest motions from the pack'}
+          <button onClick={scanPack} disabled={busy === 'scan'} className="bp-btn bp-btn-secondary"
+            style={busy === 'scan' ? { color: '#e8622c', borderColor: '#e8622c' } : undefined}>
+            {busy === 'scan'
+              ? <WorkingDots label="Reading the pack…" />
+              : <><Sparkles size={14} /> Suggest motions from the pack</>}
           </button>
           <span className="text-xs bp-muted">
-            Reads the papers for recommendations and resolutions — you choose what makes the list.
+            {busy === 'scan'
+              ? 'Downloading and reading every paper in the pack — this can take a little while on a big pack.'
+              : 'Reads the papers for recommendations and resolutions — you choose what makes the list.'}
           </span>
         </div>
       )}
