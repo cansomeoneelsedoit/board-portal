@@ -4,6 +4,7 @@ const { getGraphToken } = require('./graph/auth');
 const { matchMeetingFolder, receivedStatus } = require('./board-pack');
 const { textFromFile } = require('./motion-scan');
 const { resilientFetch } = require('./graph/client');
+const { manyFileTexts, fileText } = require('./pack-text');
 
 /*
  * Ask me anything — powered by BizGPT.
@@ -82,19 +83,19 @@ async function packText(meeting) {
       }
       if (folderId) {
         const files = await listFilesDeep(token, driveId, folderId);
+        const readable = files.filter((f) => READABLE.test(f.name));
         for (const f of files) {
-          if (!READABLE.test(f.name)) {
-            manifest.push(`  ${f.name} — binary (${f.size || 0} bytes), not readable as text`);
+          if (!READABLE.test(f.name)) manifest.push(`  ${f.name} — binary (${f.size || 0} bytes), not readable as text`);
+        }
+        // Text comes from the cache when the file is unchanged in
+        // SharePoint; only new or edited papers are downloaded and read.
+        const results = await manyFileTexts(token, driveId, readable, 5);
+        for (const r of results) {
+          if (r.error) {
+            manifest.push(`  ${r.file.name} — could not be downloaded (${r.error.slice(0, 60)})`);
             continue;
           }
-          try {
-            const url = await sp.getDownloadUrl(token, driveId, f.id);
-            if (!url) continue;
-            const buffer = Buffer.from(await (await resilientFetch(url, {}, { target: 'SharePoint' })).arrayBuffer());
-            push(f.name, await textFromFile(f.name, buffer), f.size || buffer.length);
-          } catch (e) {
-            manifest.push(`  ${f.name} — could not be downloaded (${e.message.slice(0, 60)})`);
-          }
+          push(r.file.name, r.text, r.file.size || 0);
           if (total >= MAX_PACK_CHARS) break;
         }
       }
@@ -239,12 +240,8 @@ async function askBizGpt(meeting, question, history = [], focusFile = null) {
       try {
         const driveId = meeting.sharepointDriveId || meeting.board?.sharepointDriveId;
         const { token } = await getGraphToken();
-        const url = await sp.getDownloadUrl(token, driveId, focusFile.itemId);
-        if (url) {
-          const buffer = Buffer.from(await (await resilientFetch(url, {}, { target: 'SharePoint' })).arrayBuffer());
-          const text = await textFromFile(focusFile.name, buffer);
-          if (text) context += `\n\n--- FILE: ${focusFile.name} (opened by the user) ---\n${text.slice(0, MAX_FILE_CHARS)}`;
-        }
+        const { text } = await fileText(token, driveId, { id: focusFile.itemId, name: focusFile.name });
+        if (text) context += `\n\n--- FILE: ${focusFile.name} (opened by the user) ---\n${text.slice(0, MAX_FILE_CHARS)}`;
       } catch { /* answer from what we have */ }
     }
     persona +=

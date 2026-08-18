@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BrainCircuit, Loader2, Send, Sparkles, X } from 'lucide-react'
+import { BrainCircuit, History, MessageSquarePlus, Send, Sparkles, X } from 'lucide-react'
 import api from '../lib/api'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -9,17 +9,57 @@ import WorkingDots from './WorkingDots'
  * Ask me anything — powered by BizGPT.
  *
  * A chat window scoped to ONE meeting: every answer comes from this
- * meeting's record and the full text of its board pack. The conversation
- * lives in the window; closing it starts fresh.
+ * meeting's record and the full text of its board pack. Each person's
+ * conversation is kept — per meeting, and per paper when asked from a
+ * preview — and comes back whenever they open the window again. "My chats"
+ * lists every conversation they have had about this meeting.
  */
 export default function AskBizGpt({ meeting, focusFile = null, compact = false }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  // Which conversation is showing: the whole meeting, or one paper.
+  const [scope, setScope] = useState(focusFile ? { itemId: focusFile.itemId || null, name: focusFile.name } : null)
+  const [threads, setThreads] = useState(null) // null = list closed
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
+
+  const scopeQuery = scope?.itemId ? `?focusItemId=${encodeURIComponent(scope.itemId)}` : ''
+
+  // The person's saved conversation for this scope.
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    setLoading(true)
+    api.get(`/pack/${meeting.id}/ask/history${scopeQuery}`)
+      .then(({ data }) => {
+        if (!live) return
+        setMessages((data.messages || []).map((m) => ({ role: m.role, content: m.content, provider: m.provider, at: m.createdAt })))
+      })
+      .catch(() => { if (live) setMessages([]) })
+      .finally(() => { if (live) setLoading(false) })
+    return () => { live = false }
+  }, [open, meeting.id, scopeQuery])
+
+  const showThreads = async () => {
+    if (threads) { setThreads(null); return }
+    try {
+      const { data } = await api.get(`/pack/${meeting.id}/ask/threads`)
+      setThreads(data.threads || [])
+    } catch { setThreads([]) }
+  }
+
+  const newChat = async () => {
+    if (busy) return
+    if (messages.length && !window.confirm('Start a new chat? Your saved conversation for this scope will be cleared.')) return
+    try { await api.delete(`/pack/${meeting.id}/ask/history${scopeQuery}`) } catch { /* best effort */ }
+    setMessages([])
+    setError(null)
+    inputRef.current?.focus()
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -41,13 +81,13 @@ export default function AskBizGpt({ meeting, focusFile = null, compact = false }
       const { data } = await api.post(`/pack/${meeting.id}/ask`, {
         question,
         history: messages.slice(-8),
-        ...(focusFile ? { focusFile: { name: focusFile.name, itemId: focusFile.itemId || null } } : {}),
+        ...(scope ? { focusFile: { name: scope.name, itemId: scope.itemId || null } } : {}),
       })
       setMessages((m) => [...m, {
         role: 'assistant',
         content: data.answer,
         provider: data.providerLabel,
-        fellBack: data.fellBack,
+        at: new Date().toISOString(),
       }])
     } catch (ex) {
       setError(ex.message)
@@ -85,21 +125,57 @@ export default function AskBizGpt({ meeting, focusFile = null, compact = false }
                 <p className="text-sm font-semibold leading-tight">Ask me anything</p>
                 <p className="text-xs bp-muted leading-tight truncate">
                   powered by <span style={{ color: '#e8622c', fontWeight: 600 }}>Biz</span><span className="font-semibold">GPT</span>
-                  {focusFile ? <> · about <b>{focusFile.name}</b></> : ' · answers from this meeting’s pack'}
+                  {scope ? <> · about <b>{scope.name}</b></> : ' · answers from this meeting’s pack'}
                 </p>
               </div>
+              <button onClick={showThreads} className={`bp-subtle hover:text-[var(--bp-fg)] p-1.5 ${threads ? 'text-[var(--bp-fg)]' : ''}`} title="My chats about this meeting">
+                <History size={16} />
+              </button>
+              <button onClick={newChat} className="bp-subtle hover:text-[var(--bp-fg)] p-1.5" title="New chat (clears this conversation)">
+                <MessageSquarePlus size={16} />
+              </button>
               <button onClick={() => setOpen(false)} className="bp-subtle hover:text-[var(--bp-fg)] p-1.5" title="Close">
                 <X size={16} />
               </button>
             </div>
 
+            {threads && (
+              <div className="px-4 py-2 text-xs" style={{ borderBottom: '1px solid var(--bp-card-border)', background: 'var(--bp-card-bg, #fff)' }}>
+                <p className="bp-muted mb-1 font-semibold uppercase tracking-wide text-[10px]">My chats</p>
+                {threads.length === 0 ? (
+                  <p className="bp-muted">No saved chats yet — ask something and it will be kept here.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {threads.map((t) => {
+                      const active = (t.focusItemId || null) === (scope?.itemId || null)
+                      return (
+                        <li key={t.focusItemId || 'meeting'}>
+                          <button
+                            onClick={() => { setScope(t.focusItemId ? { itemId: t.focusItemId, name: t.focusName } : null); setThreads(null) }}
+                            className={`w-full text-left rounded px-2 py-1 hover:bg-[var(--bp-neutral-bg)] ${active ? 'font-semibold' : ''}`}
+                          >
+                            <span>{t.focusName || 'Whole meeting'}</span>
+                            <span className="bp-subtle"> · {Math.ceil(t.count / 2)} question{t.count > 2 ? 's' : ''} · {new Date(t.lastAt).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                            {t.lastQuestion && <span className="block bp-muted truncate">&ldquo;{t.lastQuestion}&rdquo;</span>}
+                          </button>
+                        </li>
+                      )
+                    })}
+                    {scope && !threads.some((t) => !t.focusItemId) && (
+                      <li><button onClick={() => { setScope(null); setThreads(null) }} className="w-full text-left rounded px-2 py-1 hover:bg-[var(--bp-neutral-bg)]">Whole meeting</button></li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )}
+
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" style={{ background: 'var(--bp-neutral-bg)' }}>
-              {messages.length === 0 && !busy && (
+              {messages.length === 0 && !busy && !loading && (
                 <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8">
                   <Sparkles size={22} style={{ color: '#e8622c' }} />
-                  {focusFile ? (
+                  {scope ? (
                     <p className="text-sm bp-muted max-w-sm">
-                      Ask about <b>{focusFile.name}</b> — &ldquo;Summarise this&rdquo;, &ldquo;What is being asked of the board?&rdquo;,
+                      Ask about <b>{scope.name}</b> — &ldquo;Summarise this&rdquo;, &ldquo;What is being asked of the board?&rdquo;,
                       &ldquo;What are the key dates and figures?&rdquo;
                     </p>
                   ) : (
@@ -136,11 +212,11 @@ export default function AskBizGpt({ meeting, focusFile = null, compact = false }
                           {m.content}
                         </ReactMarkdown>
                       </div>
-                      {m.provider && (
-                        <p className="text-[11px] bp-subtle mt-2 pt-2" style={{ borderTop: '1px solid var(--bp-card-border)' }}>
-                          {m.fellBack ? '↪ answered by fallback: ' : 'answered by '}{m.provider}
-                        </p>
-                      )}
+                      <p className="text-[11px] bp-subtle mt-2 pt-2" style={{ borderTop: '1px solid var(--bp-card-border)' }}
+                         title={m.provider ? `via ${m.provider}` : undefined}>
+                        answered by <span style={{ color: '#e8622c', fontWeight: 600 }}>Biz</span><span className="font-semibold">GPT2.0</span>
+                        {m.at && <span> · {new Date(m.at).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })}</span>}
+                      </p>
                     </div>
                   </div>
                 )

@@ -495,3 +495,38 @@ model AuditLog {
   
   meeting   Meeting? @relation(fields: [meetingId], references: [id])
 }
+
+// Extracted text of a pack file, keyed by the SharePoint item and its
+// modified stamp. Unchanged files are never downloaded or parsed twice —
+// the AI reads from here and only fetches a file when SharePoint says it
+// changed.
+model PackFileText {
+  id          String   @id @default(uuid())
+  driveId     String
+  itemId      String
+  name        String
+  size        Int      @default(0)
+  modifiedAt  String? // SharePoint lastModifiedDateTime, as given
+  text        String   @default("")
+  chars       Int      @default(0)
+  extractedAt DateTime @default(now())
+
+  @@unique([driveId, itemId])
+}
+
+// One line of an "Ask me anything" conversation. Each person has their own
+// chat per meeting (and per paper, when asked from a preview); it is
+// reloaded whenever they open the window again.
+model AskMessage {
+  id          String   @id @default(uuid())
+  meetingId   String
+  userId      String
+  focusItemId String? // null = the whole meeting
+  focusName   String?
+  role        String // user | assistant
+  content     String
+  provider    String?
+  createdAt   DateTime @default(now())
+
+  @@index([meetingId, userId, focusItemId])
+}

@@ -13,6 +13,7 @@ const {
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
 const { requireAdmin } = require('../lib/session');
 const { resilientFetch } = require('../lib/graph/client');
+const packText = require('../lib/pack-text');
 
 const router = express.Router();
 
@@ -180,6 +181,9 @@ router.get('/:meetingId/received', async (req, res) => {
           }
           for (const f of files) spFiles.push({ number, file: f });
         }
+        // Read the papers into the text cache now, in the background, so
+        // "Ask me anything" and the motion scan open on a warm pack.
+        packText.warmInBackground(meeting.id, spFiles.map((s) => s.file), token, meetingDriveId, /\.(docx|txt|md|csv|pdf|msg)$/i);
       }
 
       // First sighting locks the received stamp; later sightings only move
@@ -565,13 +569,8 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
         folderId = matchMeetingFolder(children.filter((c) => c.isFolder), meeting)?.id || null;
       }
       if (folderId) {
-        const spRead = (itemId) => async () => {
-          const url = await sp.getDownloadUrl(token, driveId, itemId);
-          if (!url) throw new Error('no download url');
-          const r = await resilientFetch(url, {}, { target: 'SharePoint' });
-          if (!r.ok) throw new Error(`download failed (${r.status})`);
-          return Buffer.from(await r.arrayBuffer());
-        };
+        // Cached text when SharePoint says the file is unchanged.
+        const spRead = (file) => async () => (await packText.fileText(token, driveId, file)).text;
         const entries = await sp.listChildren(token, driveId, folderId);
         for (const entry of entries) {
           if (entry.isFolder) {
@@ -580,11 +579,11 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
             const files = await listFilesDeep(token, driveId, entry.id);
             for (const f of files) {
               if (READABLE.test(f.name) && (f.size || 0) <= MAX_BYTES) {
-                candidates.push({ name: f.name, number, read: spRead(f.id) });
+                candidates.push({ name: f.name, number, read: spRead(f) });
               }
             }
           } else if (READABLE.test(entry.name) && (entry.size || 0) <= MAX_BYTES) {
-            candidates.push({ name: entry.name, number: null, read: spRead(entry.id) });
+            candidates.push({ name: entry.name, number: null, read: spRead(entry) });
           }
         }
       }
@@ -600,7 +599,7 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
       candidates.push({
         name: d.name,
         number: null,
-        read: async () => fs.promises.readFile(full),
+        read: async () => textFromFile(d.filename || d.name, await fs.promises.readFile(full)),
       });
     }
 
@@ -620,8 +619,7 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
         const i = cursor++;
         const c = candidates[i];
         try {
-          const buffer = await c.read();
-          texts[i] = await textFromFile(c.name, buffer);
+          texts[i] = (await c.read()) || '';
         } catch { texts[i] = null; }
       }
     };
@@ -652,6 +650,51 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
  * One question about this meeting, answered from its record and the full
  * text of its board pack. Reading, not writing — every role may ask.
  */
+const askUser = (req) => String(req.session?.userId || 'local');
+const focusKey = (v) => (v ? String(v) : null);
+
+/** This person's conversation for a meeting (or one paper of it). */
+router.get('/:meetingId/ask/history', async (req, res) => {
+  try {
+    const messages = await prisma.askMessage.findMany({
+      where: { meetingId: req.params.meetingId, userId: askUser(req), focusItemId: focusKey(req.query.focusItemId) },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+    });
+    res.json({ messages });
+  } catch (error) { handle(res, error); }
+});
+
+/** Every conversation this person has had about a meeting — one per scope. */
+router.get('/:meetingId/ask/threads', async (req, res) => {
+  try {
+    const rows = await prisma.askMessage.findMany({
+      where: { meetingId: req.params.meetingId, userId: askUser(req) },
+      orderBy: { createdAt: 'desc' },
+      select: { focusItemId: true, focusName: true, role: true, content: true, createdAt: true },
+    });
+    const threads = new Map();
+    for (const r of rows) {
+      const k = r.focusItemId || '';
+      const t = threads.get(k) || { focusItemId: r.focusItemId, focusName: r.focusName, count: 0, lastAt: r.createdAt, lastQuestion: null };
+      t.count += 1;
+      if (r.role === 'user' && !t.lastQuestion) t.lastQuestion = r.content;
+      threads.set(k, t);
+    }
+    res.json({ threads: [...threads.values()] });
+  } catch (error) { handle(res, error); }
+});
+
+/** Start afresh: forget this person's conversation for the scope. */
+router.delete('/:meetingId/ask/history', async (req, res) => {
+  try {
+    await prisma.askMessage.deleteMany({
+      where: { meetingId: req.params.meetingId, userId: askUser(req), focusItemId: focusKey(req.query.focusItemId) },
+    });
+    res.json({ ok: true });
+  } catch (error) { handle(res, error); }
+});
+
 router.post('/:meetingId/ask', async (req, res) => {
   try {
     const { askBizGpt } = require('../lib/bizgpt');
@@ -665,6 +708,15 @@ router.post('/:meetingId/ask', async (req, res) => {
       ? { name: String(focusFile.name), itemId: focusFile.itemId ? String(focusFile.itemId) : null }
       : null;
     const result = await askBizGpt(meeting, question.trim(), Array.isArray(history) ? history : [], focus);
+
+    // Remember the exchange for this person, so the chat is there next time.
+    const base = { meetingId: meeting.id, userId: askUser(req), focusItemId: focus?.itemId || null, focusName: focus?.name || null };
+    await prisma.askMessage.createMany({
+      data: [
+        { ...base, role: 'user', content: question.trim() },
+        { ...base, role: 'assistant', content: result.answer || '', provider: result.providerLabel || null },
+      ],
+    }).catch(() => {});
     res.json(result);
   } catch (error) {
     if (error.status === 503 || error.status === 502) {
