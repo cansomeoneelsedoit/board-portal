@@ -1,6 +1,7 @@
 const prisma = require('../prisma');
 const { getMicrosoftAppCredentials } = require('./config');
 const { MicrosoftGraphAuthError } = require('./errors');
+const { resilientFetch } = require('./client');
 
 /*
  * Delegated Graph access via the OAuth device authorization grant.
@@ -148,11 +149,11 @@ async function getDelegatedAccessToken() {
   // when the app allows both is harmless, so include it when we have one.
   if (clientSecret) body.set('client_secret', clientSecret);
 
-  const response = await fetch(tokenUrl(tenantId), {
+  const response = await resilientFetch(tokenUrl(tenantId), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
-  });
+  }, { target: 'Microsoft sign-in' });
 
   const data = await response.json();
 

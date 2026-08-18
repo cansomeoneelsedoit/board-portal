@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const prisma = require('./prisma');
+const { resilientFetch, transientCode } = require('./graph/client');
 
 /*
  * The brains behind "Ask me anything".
@@ -167,7 +168,8 @@ function friendlyStatusError(label, status, baseUrl, body = '') {
 }
 
 function friendlyTransportError(label, error, baseUrl) {
-  const code = error?.cause?.code || error?.code || '';
+  if (error?.name === 'NetworkUnavailableError') return `${label}: ${error.message}`;
+  const code = transientCode(error) || error?.cause?.code || error?.code || '';
   const host = hostOf(baseUrl);
   if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return `${label}: ${host} could not be found — instance stopped or address wrong.`;
   if (code === 'ECONNREFUSED' || code === 'ECONNRESET') return `${label}: ${host} refused the connection — the service may still be starting.`;
@@ -184,7 +186,7 @@ async function callOpenAiCompatible(id, p, system, messages, maxTokens) {
   const base = p.baseUrl.replace(/\/+$/, '');
   let response;
   try {
-    response = await fetch(`${base}/chat/completions`, {
+    response = await resilientFetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
       body: JSON.stringify({
@@ -193,7 +195,7 @@ async function callOpenAiCompatible(id, p, system, messages, maxTokens) {
         messages: [{ role: 'system', content: system }, ...messages],
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    }, { target: label });
   } catch (error) {
     throw new Error(friendlyTransportError(label, error, base));
   }
@@ -230,7 +232,7 @@ async function callGemini(id, p, system, messages, maxTokens) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(p.model)}:generateContent?key=${encodeURIComponent(p.apiKey)}`;
   let response;
   try {
-    response = await fetch(url, {
+    response = await resilientFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

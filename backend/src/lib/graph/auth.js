@@ -1,5 +1,6 @@
 const { getMicrosoftAppCredentials } = require('./config');
 const { MicrosoftGraphAuthError } = require('./errors');
+const { resilientFetch } = require('./client');
 
 const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 
@@ -29,7 +30,7 @@ async function getAppAccessToken() {
     return cached.token;
   }
 
-  const response = await fetch(
+  const response = await resilientFetch(
     `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
     {
       method: 'POST',

@@ -12,10 +12,12 @@ const {
 } = require('../lib/board-pack');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
 const { requireAdmin } = require('../lib/session');
+const { resilientFetch } = require('../lib/graph/client');
 
 const router = express.Router();
 
 function handle(res, error) {
+  if (error?.name === 'NetworkUnavailableError') return res.status(503).json({ error: error.message, network: false });
   if (isConfigError(error)) return res.status(503).json({ error: error.message, configured: false });
   if (isGraphError(error)) return res.status(502).json({ error: error.message });
   console.error(error);
@@ -566,7 +568,7 @@ router.post('/:meetingId/scan-motions', requireAdmin, async (req, res) => {
         const spRead = (itemId) => async () => {
           const url = await sp.getDownloadUrl(token, driveId, itemId);
           if (!url) throw new Error('no download url');
-          const r = await fetch(url);
+          const r = await resilientFetch(url, {}, { target: 'SharePoint' });
           if (!r.ok) throw new Error(`download failed (${r.status})`);
           return Buffer.from(await r.arrayBuffer());
         };

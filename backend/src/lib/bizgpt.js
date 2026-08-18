@@ -3,6 +3,7 @@ const sp = require('./graph/sharepoint');
 const { getGraphToken } = require('./graph/auth');
 const { matchMeetingFolder, receivedStatus } = require('./board-pack');
 const { textFromFile } = require('./motion-scan');
+const { resilientFetch } = require('./graph/client');
 
 /*
  * Ask me anything — powered by BizGPT.
@@ -89,7 +90,7 @@ async function packText(meeting) {
           try {
             const url = await sp.getDownloadUrl(token, driveId, f.id);
             if (!url) continue;
-            const buffer = Buffer.from(await (await fetch(url)).arrayBuffer());
+            const buffer = Buffer.from(await (await resilientFetch(url, {}, { target: 'SharePoint' })).arrayBuffer());
             push(f.name, await textFromFile(f.name, buffer), f.size || buffer.length);
           } catch (e) {
             manifest.push(`  ${f.name} — could not be downloaded (${e.message.slice(0, 60)})`);
@@ -240,7 +241,7 @@ async function askBizGpt(meeting, question, history = [], focusFile = null) {
         const { token } = await getGraphToken();
         const url = await sp.getDownloadUrl(token, driveId, focusFile.itemId);
         if (url) {
-          const buffer = Buffer.from(await (await fetch(url)).arrayBuffer());
+          const buffer = Buffer.from(await (await resilientFetch(url, {}, { target: 'SharePoint' })).arrayBuffer());
           const text = await textFromFile(focusFile.name, buffer);
           if (text) context += `\n\n--- FILE: ${focusFile.name} (opened by the user) ---\n${text.slice(0, MAX_FILE_CHARS)}`;
         }
