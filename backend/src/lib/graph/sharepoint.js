@@ -390,6 +390,17 @@ async function previewItem(accessToken, driveId, itemId) {
   return data.getUrl || null;
 }
 
+/** Rename a file or folder in place. */
+async function renameItem(accessToken, driveId, itemId, name) {
+  const response = await graphFetch(accessToken, `${drivePath(driveId)}/items/${itemId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) await throwGraphError(response, 'Failed to rename');
+  return response.json();
+}
+
 async function deleteItem(accessToken, driveId, itemId) {
   const response = await graphFetch(accessToken, `${drivePath(driveId)}/items/${itemId}`, {
     method: 'DELETE',
@@ -399,6 +410,7 @@ async function deleteItem(accessToken, driveId, itemId) {
 }
 
 module.exports = {
+  renameItem,
   getSite,
   listSiteDrives,
   listFolders,

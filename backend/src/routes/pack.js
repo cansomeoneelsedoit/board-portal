@@ -8,7 +8,7 @@ const sp = require('../lib/graph/sharepoint');
 const { getGraphToken } = require('../lib/graph/auth');
 const {
   meetingFolderName, matchMeetingFolder, agendaNumberFromFolderName, receivedStatus,
-  agendaItemFromFolderName,
+  agendaItemFromFolderName, fixMojibake,
 } = require('../lib/board-pack');
 const { isGraphError, isConfigError } = require('../lib/graph/errors');
 const { requireAdmin } = require('../lib/session');
@@ -400,6 +400,7 @@ router.post('/:meetingId/upload', async (req, res) => {
 
     const file = req.files?.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded (expected field "file")' });
+    file.name = fixMojibake(file.name);
 
     const admin = req.session?.role === 'ADMIN';
     const source = packs.effectiveSource(meeting, meeting.board);

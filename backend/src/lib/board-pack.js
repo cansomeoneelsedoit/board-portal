@@ -176,7 +176,42 @@ function receivedStatus(receivedAt, meetingDate, dueDays = 4) {
   return 'AFTER_MEETING';
 }
 
+/**
+ * Undo double-encoded UTF-8 in a name ("Ã¢Â€Â”" -> "—"). The mangling
+ * happens via Windows-1252 (that is where "€" and "”" come from), so the
+ * characters are mapped back to those bytes and decoded as UTF-8, repeated
+ * until the name stops changing. A clean name comes back untouched.
+ */
+// Windows-1252 0x80–0x9F, the characters that betray a mangled name.
+const CP1252 = new Map(Object.entries({
+  '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86, '‡': 0x87,
+  'ˆ': 0x88, '‰': 0x89, 'Š': 0x8A, '‹': 0x8B, 'Œ': 0x8C, 'Ž': 0x8E,
+  '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97,
+  '˜': 0x98, '™': 0x99, 'š': 0x9A, '›': 0x9B, 'œ': 0x9C, 'ž': 0x9E, 'Ÿ': 0x9F,
+}));
+
+function fixMojibake(name) {
+  let cur = String(name || '');
+  for (let i = 0; i < 4 && /[-ÿ]/.test(cur); i++) {
+    const bytes = [];
+    let ok = true;
+    for (const ch of cur) {
+      const cp = ch.codePointAt(0);
+      if (cp < 0x100) bytes.push(cp);
+      else if (CP1252.has(ch)) bytes.push(CP1252.get(ch));
+      else { ok = false; break; }
+    }
+    if (!ok) break;
+    let next;
+    try { next = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bytes)); } catch { break; }
+    if (next === cur) break;
+    cur = next;
+  }
+  return cur;
+}
+
 module.exports = {
+  fixMojibake,
   dateFromFolderName,
   matchMeetingFolder,
   meetingFolderName,

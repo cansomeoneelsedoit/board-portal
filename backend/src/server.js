@@ -15,7 +15,9 @@ const API_PREFIX = process.env.API_PREFIX || '/api';
 // Middleware
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json({ limit: '5mb' }));
-app.use(fileUpload({ useTempFiles: false, limits: { fileSize: 50 * 1024 * 1024 } }));
+// defParamCharset: file names arrive UTF-8 — without this an em dash in a
+// name becomes 'Ã¢Â€Â”' all the way into SharePoint.
+app.use(fileUpload({ useTempFiles: false, defParamCharset: 'utf8', limits: { fileSize: 50 * 1024 * 1024 } }));
 
 // Upload dir
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
